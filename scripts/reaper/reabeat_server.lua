@@ -74,10 +74,18 @@ local function find_project_root()
         or debug.getinfo(2, "S").source:match("@?(.*[/\\])")
         or debug.getinfo(1, "S").source:match("@?(.*[/\\])")
         or ""
+
+    -- Home directory for well-known install locations
+    local home = os.getenv("HOME") or os.getenv("USERPROFILE") or ""
+
     local candidates = {
+        -- Running from cloned repo: scripts/reaper/../../ = project root
         script_path .. ".." .. SEP .. ".." .. SEP,
         script_path .. ".." .. SEP .. ".." .. SEP .. ".." .. SEP,
         script_path,
+        -- Well-known install locations (installer puts repo here)
+        home .. SEP .. "ReaBeat" .. SEP,
+        home .. SEP .. "Documents" .. SEP .. "ReaBeat" .. SEP,
     }
     for _, dir in ipairs(candidates) do
         local f = io.open(dir .. "pyproject.toml", "r")

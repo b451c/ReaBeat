@@ -6,7 +6,12 @@
 --   - mavriq-lua-sockets (install via ReaPack)
 --   - ReaBeat Python backend (auto-launched)
 
-local SCRIPT_DIR = debug.getinfo(1, "S").source:match("@?(.*/)") or ""
+local function get_script_dir()
+    local src = (debug.getinfo(1, "S") or {}).source or ""
+    local path = src:match("^@(.+)$") or src
+    return path:match("^(.*[\\/])") or ""
+end
+local SCRIPT_DIR = get_script_dir()
 
 -- Load ReaImGui
 local ImGui

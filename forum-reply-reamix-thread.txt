@@ -1,0 +1,17 @@
+Hey everyone, thanks for the feedback - let me address everything.
+
+[b]nofish[/b] and [b]todd_r[/b] - your ideas were so good I couldn't just leave them as "maybe later." I built exactly what you asked for as a separate free tool: [url=https://forum.cockos.com/showthread.php?t=308240][b]ReaBeat - Neural Beat Detection & Tempo Mapping[/b][/url]. Stretch markers, tempo mapping, and tempo matching - all powered by the same beat-this engine. Details and download in that thread.
+
+[quote=Karl R]I was thrown off quite a bit by the name - REAmix - it sounds more like a Rea-Arrange tool.[/quote]
+
+[quote=saxmand]I actually from the name also thought it was a mixing tool[/quote]
+
+Fair point, and I get it. But here's the thing - what REAmix does is literally called "remixing" in the audio industry. Adobe called their identical feature "Remix" in Audition. The academic papers call it "music retargeting" or "rearrangement", but nobody googles that.
+
+And honestly - now that you've read this thread, you'll never forget what REAmix does. Mission accomplished? ;)
+
+Besides, "REArrange" sounds like it moves items around on the timeline. REAmix takes a 4-minute song and gives you a perfect 60-second version - that's a remix in the truest sense. New arrangement, same recording, every cut invisible.
+
+So the name stays, but I appreciate the feedback. If nothing else, it got us talking about it - and that's exactly what a good name should do.
+
+Development update: REAmix is getting close to release. Current focus is on quality improvements for rock and hip-hop (the repetitive genres like EDM and trance already sound great). Stay tuned.
