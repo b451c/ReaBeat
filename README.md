@@ -135,12 +135,13 @@ Recommended: also install [SWS Extension](https://www.sws-extension.org/) (enabl
 1. Select an audio item on your REAPER timeline
 2. Run ReaBeat from the Actions menu (or press your shortcut)
 3. Click **Detect Beats**
-4. Choose your action:
-   - **Match Tempo** - adjust playrate to project BPM or custom target
+4. (Optional) Click detected BPM to edit if needed
+5. Choose your action:
+   - **Match Tempo** - adjust playrate to project BPM or custom target (auto-aligns to bar)
    - **Insert Tempo Map** - constant or variable per-bar (snaps to grid)
-   - **Insert Stretch Markers** - every beat or downbeats only
+   - **Insert Stretch Markers** - every beat or downbeats only (choose Balanced/Transient/Tonal quality)
    - **Match & Quantize** - tempo map + quantized markers in one click
-5. Click **Apply** (Ctrl+Z to undo)
+6. Click **Apply** (Ctrl+Z to undo)
 
 The Python backend launches automatically on first use and shuts down after 5 minutes of inactivity.
 
@@ -169,7 +170,7 @@ Then restart ReaBeat in REAPER (close and reopen the script window).
 | "beat-this not installed" | Run `uv sync` in the ReaBeat directory |
 | ReaImGui error | Install via ReaPack: Extensions > ReaPack > Browse > "ReaImGui" |
 | Socket error | Install via ReaPack: Extensions > ReaPack > Browse > "mavriq-lua-sockets" |
-| Wrong BPM detected | Try a different section of the song (beat-this works best with clear rhythmic content) |
+| Wrong BPM detected | Click the BPM value to edit manually. If tempo is doubled/halved, type the correct value |
 
 Server log location:
 - **macOS / Linux:** `/tmp/reabeat_server.log`
