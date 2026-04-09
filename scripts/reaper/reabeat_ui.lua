@@ -38,7 +38,7 @@ function ui.draw(ctx, ImGui, C, state, callbacks)
         ImGui.Spacing(ctx)
 
         -- Action selection
-        draw_actions(ctx, ImGui, C, state, avail_w)
+        draw_actions(ctx, ImGui, C, state, avail_w, callbacks)
         ImGui.Spacing(ctx)
 
         -- Apply button
@@ -207,7 +207,7 @@ function draw_results(ctx, ImGui, C, state, w)
     ImGui.PopStyleColor(ctx, 1)
 end
 
-function draw_actions(ctx, ImGui, C, state, w)
+function draw_actions(ctx, ImGui, C, state, w, callbacks)
     local c = theme.colors
 
     ImGui.PushStyleColor(ctx, C("Col_Text"), c.text_bright)
