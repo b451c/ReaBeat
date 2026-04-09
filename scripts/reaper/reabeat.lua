@@ -102,7 +102,7 @@ local state = {
     audio_duration = 0,
 
     -- UI
-    action_mode = 1,         -- 1=Tempo Map, 2=Stretch Markers, 3=Match Tempo, 4=Match & Quantize
+    action_mode = 3,         -- 3=Match Tempo, 1=Tempo Map, 2=Stretch Markers, 4=Match & Quantize
     tempo_mode = 1,          -- 1=Constant, 2=Variable (per bar)
     marker_mode = 1,         -- 1=Every beat, 2=Downbeats only
     target_bpm = nil,        -- Target BPM for Match Tempo (nil = use project BPM)
