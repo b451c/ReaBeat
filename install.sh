@@ -4,7 +4,7 @@
 
 set -e
 
-REPO_URL="https://github.com/USER/REABeat.git"  # TODO: update with real URL
+REPO_URL="https://github.com/b451c/REABeat.git"
 INSTALL_DIR="$HOME/REABeat"
 REAPER_SCRIPTS=""
 

@@ -4,7 +4,7 @@
 
 $ErrorActionPreference = "Stop"
 
-$REPO_URL = "https://github.com/USER/REABeat.git"  # TODO: update with real URL
+$REPO_URL = "https://github.com/b451c/REABeat.git"
 $INSTALL_DIR = "$env:USERPROFILE\REABeat"
 $REAPER_SCRIPTS = "$env:APPDATA\REAPER\Scripts"
 
