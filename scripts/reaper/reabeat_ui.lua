@@ -259,11 +259,30 @@ function draw_actions(ctx, ImGui, C, state, w, callbacks)
         if ImGui.RadioButton(ctx, string.format("Downbeats only (%d markers)", #state.downbeats), state.marker_mode == 2) then
             state.marker_mode = 2
         end
-        local changed, val = ImGui.Checkbox(ctx, "Quantize to grid", state.quantize_to_grid or false)
-        if changed then state.quantize_to_grid = val end
-        if ImGui.IsItemHovered(ctx, C("HoveredFlags_ForTooltip")) then
-            ImGui.SetTooltip(ctx, "Snap each stretch marker to REAPER's grid after insertion.\nUseful for tightening timing to your project's grid.")
+        ImGui.Unindent(ctx, 20)
+    end
+
+    ImGui.Spacing(ctx)
+
+    -- Radio: Match & Quantize
+    if ImGui.RadioButton(ctx, "Match & Quantize", state.action_mode == 4) then
+        state.action_mode = 4
+    end
+    if ImGui.IsItemHovered(ctx, C("HoveredFlags_ForTooltip")) then
+        ImGui.SetTooltip(ctx, "Two steps in one click:\n1. Insert variable tempo map (aligns REAPER grid to audio)\n2. Insert stretch markers quantized to that grid\n\nResult: tight timing with minimal stretching.")
+    end
+
+    if state.action_mode == 4 then
+        ImGui.Indent(ctx, 20)
+        if ImGui.RadioButton(ctx, string.format("Every beat (%d markers)", #state.beats), state.marker_mode == 1) then
+            state.marker_mode = 1
         end
+        if ImGui.RadioButton(ctx, string.format("Downbeats only (%d markers)", #state.downbeats), state.marker_mode == 2) then
+            state.marker_mode = 2
+        end
+        ImGui.PushStyleColor(ctx, C("Col_Text"), c.text_dim)
+        ImGui.Text(ctx, "Inserts tempo map first, then quantizes markers to it.")
+        ImGui.PopStyleColor(ctx, 1)
         ImGui.Unindent(ctx, 20)
     end
 

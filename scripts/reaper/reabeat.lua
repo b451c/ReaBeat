@@ -102,10 +102,9 @@ local state = {
     audio_duration = 0,
 
     -- UI
-    action_mode = 1,         -- 1=Tempo Map, 2=Stretch Markers, 3=Match Tempo
+    action_mode = 1,         -- 1=Tempo Map, 2=Stretch Markers, 3=Match Tempo, 4=Match & Quantize
     tempo_mode = 1,          -- 1=Constant, 2=Variable (per bar)
     marker_mode = 1,         -- 1=Every beat, 2=Downbeats only
-    quantize_to_grid = false, -- Snap stretch markers to REAPER grid
     target_bpm = nil,        -- Target BPM for Match Tempo (nil = use project BPM)
     status_message = "",
     status_color = nil,
@@ -373,7 +372,7 @@ local function apply_action()
         -- Stretch Markers
         local use_downbeats = state.marker_mode == 2
         local beat_list = use_downbeats and state.downbeats or state.beats
-        count = actions.insert_stretch_markers(state.take, beat_list, state.item, state.quantize_to_grid)
+        count = actions.insert_stretch_markers(state.take, beat_list, state.item, false)
         if count > 0 then
             state.status_message = string.format("%d stretch markers inserted", count)
             state.status_color = "success"
@@ -390,6 +389,22 @@ local function apply_action()
         else
             state.status_message = "Set a target BPM first"
             state.status_color = "warning"
+        end
+    elseif state.action_mode == 4 then
+        -- Match & Quantize: tempo map first, then stretch markers snapped to it
+        local tempo_count = actions.insert_tempo_map(
+            state.beats, state.downbeats, state.tempo,
+            state.time_sig_num, state.time_sig_denom,
+            state.item, true)  -- always variable for best grid alignment
+        if tempo_count > 0 then
+            local use_downbeats = state.marker_mode == 2
+            local beat_list = use_downbeats and state.downbeats or state.beats
+            count = actions.insert_stretch_markers(state.take, beat_list, state.item, true)
+            if count > 0 then
+                state.status_message = string.format(
+                    "%d tempo markers + %d stretch markers (quantized)", tempo_count, count)
+                state.status_color = "success"
+            end
         end
     end
     state.last_apply_count = count
