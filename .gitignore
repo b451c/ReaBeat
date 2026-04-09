@@ -1,9 +1,31 @@
+# Python
 .venv/
 __pycache__/
 *.pyc
-.pytest_cache/
 *.egg-info/
 dist/
 build/
+
+# Testing
+.pytest_cache/
+
+# OS
 .DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# uv
 uv.lock
+
+# Agent / internal
+CLAUDE.md
+forum-post-cockos.txt
+
+# Logs
+*.log
+/tmp/

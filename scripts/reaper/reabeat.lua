@@ -48,7 +48,6 @@ local ui = require("reabeat_ui")
 local socket_client = require("reabeat_socket")
 local server = require("reabeat_server")
 local actions = require("reabeat_actions")
-local waveform = require("reabeat_waveform")
 
 -- Pass script directory to server launcher (reliable path for finding project root)
 server.set_script_dir(SCRIPT_DIR)
