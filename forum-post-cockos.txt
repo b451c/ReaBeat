@@ -1,0 +1,86 @@
+[size=+2][b]REABeat — Free Neural Beat Detection & Tempo Mapping for REAPER[/b][/size]
+
+[img]https://raw.githubusercontent.com/b451c/REABeat/main/screens/Reabeat_in_action.gif[/img]
+
+Hey everyone,
+
+A few of you responded to my REAmix thread with ideas that stuck with me:
+
+[quote=nofish]If you could do a small derivate script that just inserts a stretch marker in an audio item at every detected beat/bar that'd be something I'm interested in. Currently I do this by manually inserting stretch markers at every bar/beat (depending how big the tempo fluctuations are) and then quantizing these to grid.[/quote]
+
+[quote=todd_r]could this be used to make a tempo mapping tool? I think that would be rather popular[/quote]
+
+Both of you were right — the beat detection engine behind REAmix is useful on its own. So I built it as a separate, [b]free and open-source[/b] tool.
+
+[size=+1][b]What is REABeat?[/b][/size]
+
+REABeat detects beats, downbeats, tempo and time signature in any audio item using [url=https://github.com/CPJKU/beat_this]beat-this[/url] — a state-of-the-art neural beat tracker from CPJKU (ISMIR 2024). Detection takes ~2-3 seconds per song.
+
+[img]https://raw.githubusercontent.com/b451c/REABeat/main/screens/Reabeat.png[/img]
+
+[size=+1][b]Three actions after detection:[/b][/size]
+
+[list=1]
+[*][b]Insert Tempo Map[/b] — constant BPM or variable per-bar tempo markers. Aligns REAPER's grid to your audio. Perfect for live recordings, rubato performances, or any track where you need the grid to follow the music.
+
+[*][b]Insert Stretch Markers[/b] — at every beat or downbeats only. Exactly what nofish asked for — no more manually placing stretch markers at every bar. Detect, click Apply, done.
+
+[*][b]Match Tempo[/b] — one click to adjust the item's playrate to your project BPM (or any custom BPM). Pitch is preserved via élastique. Drop a 117.5 BPM track into a 120 BPM session and match it instantly.
+[/list]
+
+[size=+1][b]Key details:[/b][/size]
+
+[list]
+[*]Beat detection powered by [b]beat-this[/b] (CPJKU, ISMIR 2024) — neural model, ~2-3s per song, sub-10ms accuracy
+[*]Time signature estimation (4/4, 3/4)
+[*]Confidence score — you know how reliable the detection is before committing
+[*]Warns before overwriting existing tempo markers or stretch markers
+[*]Full undo support — Ctrl+Z reverts everything
+[*]Cross-platform: macOS, Windows, Linux
+[*]REAPER-native feel — dark theme, compact UI, keyboard shortcuts (Enter = Apply)
+[*]Backend auto-launches and shuts down after 5 min idle — nothing to manage
+[*]All processing local — no cloud, no data sent anywhere
+[/list]
+
+[size=+1][b]Requirements:[/b][/size]
+
+[list]
+[*]REAPER 7.0+
+[*]ReaImGui 0.9+ (via ReaPack)
+[*]mavriq-lua-sockets (via ReaPack)
+[*]Python 3.10-3.12 + uv (installed automatically by the install script)
+[/list]
+
+[size=+1][b]Installation:[/b][/size]
+
+[b]macOS / Linux[/b] — open Terminal, paste:
+[code]curl -sSL https://raw.githubusercontent.com/b451c/REABeat/main/install.sh | bash[/code]
+
+[b]Windows[/b] — open PowerShell, paste:
+[code]irm https://raw.githubusercontent.com/b451c/REABeat/main/install.ps1 | iex[/code]
+
+The script installs everything: uv, Python dependencies (~800MB one-time for PyTorch + beat-this), and copies the Lua scripts to REAPER. After that, just load the script via Actions > Load ReaScript.
+
+Step-by-step manual installation guide is in the README if you prefer doing it yourself.
+
+[size=+1][b]Links:[/b][/size]
+
+[list]
+[*][b]GitHub:[/b] [url=https://github.com/b451c/REABeat]https://github.com/b451c/REABeat[/url]
+[*][b]Full install guide:[/b] [url=https://github.com/b451c/REABeat#installation]README — Installation[/url]
+[*][b]Changelog:[/b] [url=https://github.com/b451c/REABeat/blob/main/CHANGELOG.md]CHANGELOG.md[/url]
+[/list]
+
+[size=+1][b]Support development:[/b][/size]
+
+REABeat is free, MIT-licensed, no strings attached. If it saves you time and you want to support further development:
+
+[list]
+[*][url=https://ko-fi.com/quickmd]Ko-fi[/url]
+[*][url=https://buymeacoffee.com/bsroczynskh]Buy Me a Coffee[/url]
+[*][url=https://www.paypal.com/paypalme/b451c]PayPal[/url]
+[/list]
+
+Bug reports, feature requests, and feedback are welcome on [url=https://github.com/b451c/REABeat/issues]GitHub Issues[/url] or right here in this thread.
+
+Thanks to nofish and todd_r for the inspiration. Hope this is useful!
