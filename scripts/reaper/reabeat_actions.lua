@@ -25,14 +25,18 @@ function actions.insert_tempo_map(beats, downbeats, tempo, ts_num, ts_denom, ite
     local item_pos = reaper.GetMediaItemInfo_Value(item, "D_POSITION")
     item_pos = math.max(0, item_pos)
 
-    -- Snap first beat to nearest bar boundary in REAPER's grid
-    -- This aligns the detected tempo map with REAPER's existing grid
+    -- Snap first downbeat to nearest bar line using TimeMap2 (grid-independent).
+    -- Unlike BR_GetClosestGridDivision, this always snaps to a bar boundary
+    -- regardless of the user's grid resolution setting.
     local first_beat_time = item_pos + downbeats[1]
-    local snapped_time = first_beat_time
-    if reaper.BR_GetClosestGridDivision then
-        snapped_time = reaper.BR_GetClosestGridDivision(first_beat_time)
+    local _, measures = reaper.TimeMap2_timeToBeats(0, first_beat_time)
+    local bar_time = reaper.TimeMap2_beatsToTime(0, 0, measures)
+    local next_bar_time = reaper.TimeMap2_beatsToTime(0, 0, measures + 1)
+    local snapped_time
+    if math.abs(first_beat_time - bar_time) <= math.abs(first_beat_time - next_bar_time) then
+        snapped_time = bar_time
     else
-        snapped_time = reaper.SnapToGrid(0, first_beat_time)
+        snapped_time = next_bar_time
     end
     local snap_offset = snapped_time - first_beat_time
 
@@ -42,9 +46,9 @@ function actions.insert_tempo_map(beats, downbeats, tempo, ts_num, ts_denom, ite
     local count = 0
 
     if not variable then
-        -- Constant tempo: single marker at snapped position
+        -- Constant tempo: single marker at snapped bar position
         reaper.SetTempoTimeSigMarker(0, -1,
-            item_pos + snap_offset, -1, -1,
+            snapped_time, -1, -1,
             tempo,
             math.floor(ts_num),
             math.floor(ts_denom),

@@ -186,6 +186,9 @@ function server.launch()
         if runner then
             local bat = io.open(bat_file, "w")
             if bat then
+                -- Prevent Intel Fortran Runtime (PyTorch MKL) from crashing
+                -- on CTRL_CLOSE_EVENT when the launching console is destroyed
+                bat:write('@SET FOR_DISABLE_CONSOLE_CTRL_HANDLER=1\r\n')
                 bat:write(string.format('@cd /D "%s"\r\n', state.project_root))
                 bat:write(string.format('%s -m reabeat serve --port %d --idle-timeout %d > "%s" 2>&1\r\n',
                     runner, PORT, IDLE_TIMEOUT_SEC, LOG_FILE))

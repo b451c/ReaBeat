@@ -52,22 +52,23 @@ if ($uvPath) {
 Write-Host ""
 Write-Host "  [2/4] Getting ReaBeat..." -ForegroundColor Yellow
 $gitPath = Get-Command git -ErrorAction SilentlyContinue
-if ($gitPath) {
-    if (Test-Path $INSTALL_DIR) {
-        Write-Host "         Updating existing installation..."
-        Push-Location $INSTALL_DIR
-        git pull --ff-only
-        if ($LASTEXITCODE -ne 0) {
-            Pop-Location
-            Abort "git pull failed. Try deleting $INSTALL_DIR and running installer again."
-        }
+$hasGitRepo = (Test-Path $INSTALL_DIR) -and (Test-Path (Join-Path $INSTALL_DIR ".git"))
+if ($gitPath -and $hasGitRepo) {
+    # Existing git repo — pull updates
+    Write-Host "         Updating existing installation..."
+    Push-Location $INSTALL_DIR
+    git pull --ff-only
+    if ($LASTEXITCODE -ne 0) {
         Pop-Location
-    } else {
-        Write-Host "         Downloading to $INSTALL_DIR..."
-        git clone $REPO_URL $INSTALL_DIR
-        if ($LASTEXITCODE -ne 0) {
-            Abort "git clone failed. Check your internet connection."
-        }
+        Abort "git pull failed. Try deleting $INSTALL_DIR and running installer again."
+    }
+    Pop-Location
+} elseif ($gitPath -and -not (Test-Path $INSTALL_DIR)) {
+    # Fresh install with git
+    Write-Host "         Downloading to $INSTALL_DIR..."
+    git clone $REPO_URL $INSTALL_DIR
+    if ($LASTEXITCODE -ne 0) {
+        Abort "git clone failed. Check your internet connection."
     }
 } else {
     # No git — download ZIP archive instead
@@ -83,8 +84,15 @@ if ($gitPath) {
         if (-not (Test-Path $extracted)) {
             Abort "ZIP extraction failed — expected ReaBeat-main folder not found."
         }
-        if (Test-Path $INSTALL_DIR) { Remove-Item $INSTALL_DIR -Recurse -Force }
-        Move-Item $extracted $INSTALL_DIR
+        if (Test-Path $INSTALL_DIR) {
+            # Update: overwrite files but preserve .venv (800MB Python deps)
+            Get-ChildItem $extracted | ForEach-Object {
+                Copy-Item $_.FullName -Destination $INSTALL_DIR -Recurse -Force
+            }
+            Remove-Item $extracted -Recurse -Force
+        } else {
+            Move-Item $extracted $INSTALL_DIR
+        }
         Remove-Item $zipFile -ErrorAction SilentlyContinue
         Remove-Item $extractDir -Recurse -Force -ErrorAction SilentlyContinue
         Write-Host "         Downloaded to $INSTALL_DIR"

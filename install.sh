@@ -59,16 +59,16 @@ fi
 # Step 2: Clone or update repo
 echo ""
 echo "  [2/4] Getting ReaBeat..."
-if command -v git &>/dev/null; then
-    if [ -d "$INSTALL_DIR" ]; then
-        echo "         Updating existing installation..."
-        cd "$INSTALL_DIR"
-        git pull --ff-only 2>/dev/null || echo "         (could not auto-update, using existing)"
-    else
-        echo "         Downloading to $INSTALL_DIR..."
-        git clone "$REPO_URL" "$INSTALL_DIR"
-        cd "$INSTALL_DIR"
-    fi
+if command -v git &>/dev/null && [ -d "$INSTALL_DIR/.git" ]; then
+    # Existing git repo — pull updates
+    echo "         Updating existing installation..."
+    cd "$INSTALL_DIR"
+    git pull --ff-only 2>/dev/null || echo "         (could not auto-update, using existing)"
+elif command -v git &>/dev/null && [ ! -d "$INSTALL_DIR" ]; then
+    # Fresh install with git
+    echo "         Downloading to $INSTALL_DIR..."
+    git clone "$REPO_URL" "$INSTALL_DIR"
+    cd "$INSTALL_DIR"
 else
     # No git — download ZIP archive instead
     echo "         git not found — downloading ZIP..."
@@ -78,8 +78,13 @@ else
     curl -sSL "$ZIP_URL" -o "$ZIP_FILE" || { echo "  ERROR: Download failed"; exit 1; }
     rm -rf "$EXTRACT_DIR"
     unzip -q "$ZIP_FILE" -d "$EXTRACT_DIR" || { echo "  ERROR: Extraction failed (install unzip: sudo apt install unzip)"; exit 1; }
-    if [ -d "$INSTALL_DIR" ]; then rm -rf "$INSTALL_DIR"; fi
-    mv "$EXTRACT_DIR/ReaBeat-main" "$INSTALL_DIR"
+    if [ -d "$INSTALL_DIR" ]; then
+        # Update: overwrite files but preserve .venv (800MB Python deps)
+        cp -a "$EXTRACT_DIR/ReaBeat-main/." "$INSTALL_DIR/"
+        rm -rf "$EXTRACT_DIR/ReaBeat-main"
+    else
+        mv "$EXTRACT_DIR/ReaBeat-main" "$INSTALL_DIR"
+    fi
     rm -f "$ZIP_FILE"
     rm -rf "$EXTRACT_DIR"
     cd "$INSTALL_DIR"

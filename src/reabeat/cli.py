@@ -19,6 +19,18 @@ def main() -> None:
 @click.option("--verbose", is_flag=True, help="Enable debug logging")
 def serve(port: int, idle_timeout: int, verbose: bool) -> None:
     """Start the ReaBeat analysis server."""
+    # On Windows, detach from the launching console to survive its destruction.
+    # REAPER's Lua os.execute() creates a transient console that is destroyed
+    # when it returns. Intel Fortran Runtime (PyTorch MKL) crashes on the
+    # resulting CTRL_CLOSE_EVENT with "forrtl: error (200)".
+    import sys
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            ctypes.windll.kernel32.FreeConsole()
+        except Exception:
+            pass
+
     level = logging.DEBUG if verbose else logging.INFO
     logging.basicConfig(
         level=level,

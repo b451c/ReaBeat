@@ -130,10 +130,18 @@ function draw_source(ctx, ImGui, C, state, w, callbacks)
         return
     end
 
-    -- Item name and duration
+    -- Item name and duration (truncate long names to prevent overlap with Detect button)
+    local display_name = state.item_name
+    local max_name = math.max(10, math.floor((w - 160) / 7))
+    if #display_name > max_name then
+        display_name = display_name:sub(1, max_name - 3) .. "..."
+    end
     ImGui.PushStyleColor(ctx, C("Col_Text"), c.text_bright)
-    ImGui.Text(ctx, state.item_name)
+    ImGui.Text(ctx, display_name)
     ImGui.PopStyleColor(ctx, 1)
+    if display_name ~= state.item_name and ImGui.IsItemHovered(ctx, C("HoveredFlags_ForTooltip")) then
+        ImGui.SetTooltip(ctx, state.item_name)
+    end
     ImGui.SameLine(ctx)
     ImGui.PushStyleColor(ctx, C("Col_Text"), c.text_dim)
     ImGui.Text(ctx, string.format("(%s)", fmt_time(state.item_duration)))
@@ -323,6 +331,11 @@ function draw_actions(ctx, ImGui, C, state, w, callbacks)
             state.marker_mode = 2
         end
         draw_stretch_mode(ctx, ImGui, C, state)
+        local q_changed, q_val = ImGui.Checkbox(ctx, "Quantize to grid", state.quantize_markers)
+        if q_changed then state.quantize_markers = q_val end
+        if ImGui.IsItemHovered(ctx, C("HoveredFlags_ForTooltip")) then
+            ImGui.SetTooltip(ctx, "Snap each stretch marker to the nearest beat in the\ncurrent tempo map. Does not modify the tempo map.")
+        end
         ImGui.Unindent(ctx, 20)
     end
 

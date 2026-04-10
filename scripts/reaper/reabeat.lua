@@ -108,6 +108,7 @@ local state = {
     target_bpm = nil,        -- Target BPM for Match Tempo (nil = use project BPM)
     align_to_bar = true,     -- Auto-align first downbeat to bar after Match Tempo
     stretch_mode = 1,        -- 1=Balanced, 2=Transient, 3=Tonal (index into STRETCH_MODES)
+    quantize_markers = false, -- Quantize stretch markers to grid (mode 2 only)
     status_message = "",
     status_color = nil,
     last_apply_count = 0,
@@ -377,12 +378,13 @@ local function apply_action()
             state.status_color = "success"
         end
     elseif state.action_mode == 2 then
-        -- Stretch Markers
+        -- Stretch Markers (optionally quantized to existing grid)
         local use_downbeats = state.marker_mode == 2
         local beat_list = use_downbeats and state.downbeats or state.beats
-        count = actions.insert_stretch_markers(state.take, beat_list, state.item, false, stretch_flag)
+        count = actions.insert_stretch_markers(state.take, beat_list, state.item, state.quantize_markers, stretch_flag)
         if count > 0 then
-            state.status_message = string.format("%d stretch markers inserted", count)
+            local label = state.quantize_markers and "quantized" or "inserted"
+            state.status_message = string.format("%d stretch markers %s", count, label)
             state.status_color = "success"
         end
     elseif state.action_mode == 3 then
@@ -411,6 +413,8 @@ local function apply_action()
             state.time_sig_num, state.time_sig_denom,
             state.item, true)  -- always variable for best grid alignment
         if tempo_count > 0 then
+            -- Force timeline refresh so TimeMap2 sees the new tempo markers
+            reaper.UpdateTimeline()
             local use_downbeats = state.marker_mode == 2
             local beat_list = use_downbeats and state.downbeats or state.beats
             count = actions.insert_stretch_markers(state.take, beat_list, state.item, true, stretch_flag)
@@ -444,7 +448,7 @@ local function draw_frame()
     poll_responses()
 
     ImGui.SetNextWindowSize(ctx, 420, 360, C("Cond_FirstUseEver"))
-    ImGui.SetNextWindowSizeConstraints(ctx, 360, 260, 560, 600)
+    ImGui.SetNextWindowSizeConstraints(ctx, 420, 260, 560, 600)
     WINDOW_FLAGS = C("WindowFlags_NoCollapse")
 
     local theme_colors, theme_vars = theme.push(ctx, ImGui, C)

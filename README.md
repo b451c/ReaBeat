@@ -151,10 +151,16 @@ The Python backend launches automatically on first use and shuts down after 5 mi
 
 ## Updating
 
+Re-run the same install command — it detects the existing installation and updates it:
+
+**macOS / Linux:**
 ```bash
-cd ~/Documents/ReaBeat    # or wherever you cloned it
-git pull
-uv sync
+curl -sSL https://raw.githubusercontent.com/b451c/ReaBeat/main/install.sh | bash
+```
+
+**Windows (PowerShell):**
+```powershell
+irm https://raw.githubusercontent.com/b451c/ReaBeat/main/install.ps1 | iex
 ```
 
 Then restart ReaBeat in REAPER (close and reopen the script window).
