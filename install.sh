@@ -98,6 +98,16 @@ echo "         This may take a few minutes on first install (~800MB)."
 echo ""
 uv sync
 
+# Install CUDA PyTorch if NVIDIA GPU detected
+if command -v nvidia-smi &>/dev/null; then
+    echo ""
+    echo "         NVIDIA GPU detected — installing CUDA acceleration (~2.5GB)..."
+    echo "         This enables 10-50x faster beat detection."
+    echo ""
+    uv pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu124 --reinstall-package torch --reinstall-package torchaudio --quiet || \
+        echo "         CUDA install failed — continuing with CPU (still works, just slower)."
+fi
+
 echo ""
 echo "         Verifying backend..."
 uv run python -m reabeat check

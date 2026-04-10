@@ -127,6 +127,8 @@ def detect_beats(
         device = "cpu"
         if torch.cuda.is_available():
             device = "cuda"
+        elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            device = "mps"
 
         try:
             f2b = File2Beats(device=device, dbn=False)
