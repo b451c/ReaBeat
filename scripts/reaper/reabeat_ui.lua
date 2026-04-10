@@ -333,7 +333,7 @@ function draw_actions(ctx, ImGui, C, state, w, callbacks)
         local q_changed, q_val = ImGui.Checkbox(ctx, "Quantize to grid", state.quantize_markers)
         if q_changed then state.quantize_markers = q_val end
         if ImGui.IsItemHovered(ctx, C("HoveredFlags_ForTooltip")) then
-            ImGui.SetTooltip(ctx, "Snap each stretch marker to the nearest beat in the current tempo map.\nDoes not modify the tempo map.\n\nRequires a matching tempo map (insert one first or use Match & Quantize).\nStraightens micro-timing (groove) — expect ~0.93-0.97x stretch ratios.")
+            ImGui.SetTooltip(ctx, "Snap each stretch marker to the nearest beat in the current tempo map.\nDoes not modify the tempo map.\n\nRequires a matching tempo map (insert one first).\nStraightens micro-timing — expect ~0.93-0.97x stretch ratios.\nFor best results, use Match & Quantize mode instead.")
         end
         ImGui.Unindent(ctx, 20)
     end
