@@ -26,7 +26,7 @@ dependencies = [
     "click>=8.0.0",
     "torch>=2.0.0",
     "torchaudio>=2.0.0",
-    "beat-this @ git+https://github.com/CPJKU/beat_this.git",
+    "beat-this @ https://github.com/CPJKU/beat_this/archive/c8c320e84f1a4e5b291327debe754734ea802afc.tar.gz",
 ]
 
 [project.optional-dependencies]
