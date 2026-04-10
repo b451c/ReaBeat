@@ -56,9 +56,13 @@ end
 function draw_header(ctx, ImGui, C, state, w, callbacks)
     local c = theme.colors
 
-    -- Title
+    -- Title + version
     ImGui.PushStyleColor(ctx, C("Col_Text"), c.accent)
     ImGui.Text(ctx, "ReaBeat")
+    ImGui.PopStyleColor(ctx, 1)
+    ImGui.SameLine(ctx)
+    ImGui.PushStyleColor(ctx, C("Col_Text"), c.text_dim)
+    ImGui.Text(ctx, "v1.2.1")
     ImGui.PopStyleColor(ctx, 1)
 
     -- Support button (next to title)
