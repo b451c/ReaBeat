@@ -21,10 +21,9 @@ ReaBeat detects beats, downbeats, tempo, and time signature in any audio using [
 
 ## Use Cases
 
-- **Tempo-map a live recording** — align REAPER's grid to freely played audio
 - **Match a song to your session** — detect BPM, one click to match project tempo
-- **Quantize timing** — insert stretch markers, then fine-tune in REAPER
-- **Sync to picture** — create accurate tempo map for scoring workflows
+- **Sync two tracks** — match both to the same BPM with auto-alignment
+- **Quantize timing** — insert stretch markers snapped to REAPER's grid
 - **Prep for editing** — know the BPM and bar structure before you start cutting
 
 ---
@@ -137,9 +136,7 @@ Recommended: also install [SWS Extension](https://www.sws-extension.org/) (enabl
 4. (Optional) Click detected BPM to edit if needed
 5. Choose your action:
    - **Match Tempo** - adjust playrate to project BPM or custom target (auto-aligns to bar)
-   - **Insert Tempo Map** - constant or variable per-bar (snaps to grid)
-   - **Insert Stretch Markers** - every beat or downbeats only (choose Balanced/Transient/Tonal quality)
-   - **Match & Quantize** - tempo map + quantized markers in one click
+   - **Insert Stretch Markers** - every beat or downbeats only, optionally quantized to REAPER's grid
 6. Click **Apply** (Ctrl+Z to undo)
 
 The Python backend launches automatically on first use and shuts down after 5 minutes of inactivity.
