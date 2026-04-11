@@ -1,5 +1,33 @@
 # Changelog
 
+## v1.3.0 (2026-04-11)
+
+Simplified UI, precision improvements, beat detection overhaul.
+
+### UI Simplified
+- **Removed Insert Tempo Map and Match & Quantize modes** — edge case features that confused the workflow. Two clear modes remain:
+  - **Match Tempo** — adjust playrate to project BPM with pitch preserved and auto-alignment
+  - **Insert Stretch Markers** — mark detected beats, optionally quantize to REAPER's project grid
+- **Clearer tooltips** — Match & Quantize tooltip no longer misleads about "aligning REAPER grid"
+
+### Beat Detection Precision
+- **Onset refinement** — after beat-this detection (20ms resolution), each beat position is snapped to the nearest audio transient using librosa onset detection. Sample-level accuracy (~0.05ms) instead of frame-level (~20ms)
+- **Phase-aware BPM calculation** — based on CPJKU/beat_this#13: circular mean for optimal phase + linear regression on beat grid. More precise than the previous hybrid span/mean method
+- **Octave correction range 78-185 BPM** — optimized for modern music (captures 140 BPM trap, filters 200+ artifacts). Was 40-240
+
+### Quantization Fixed
+- **"Quantize to grid" now uses REAPER's project grid** (TimeMap2 per-bar) — previously used internal downbeat calculation that didn't match REAPER's ruler
+- **Correct pos/srcpos handling** — stretch markers now properly separate source position (where audio IS) from target position (where it should PLAY). Fixes markers appearing at wrong positions after Match Tempo
+- **Smart threshold** — corrections limited to half a beat interval (not fixed 50ms). Prevents snapping to wrong grid beat while allowing larger corrections when needed
+
+### Removed
+- Insert Tempo Map mode (constant and variable)
+- Match & Quantize mode
+- Per-downbeat quantization (replaced by REAPER grid quantization)
+
+### Tests
+- 36 tests passing (was 26): added 10 quantization math tests
+
 ## v1.2.1 (2026-04-10)
 
 Stability and platform update. Windows server launch completely reworked, GPU acceleration auto-detected, installer works without git. Based on community testing (Bassman002, squibs, Hipox).

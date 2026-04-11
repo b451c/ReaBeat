@@ -57,7 +57,7 @@ function draw_header(ctx, ImGui, C, state, w, callbacks)
     ImGui.PopStyleColor(ctx, 1)
     ImGui.SameLine(ctx)
     ImGui.PushStyleColor(ctx, C("Col_Text"), c.text_dim)
-    ImGui.Text(ctx, "v1.2.1")
+    ImGui.Text(ctx, "v1.3.0")
     ImGui.PopStyleColor(ctx, 1)
 
     -- Support button (next to title)
@@ -286,34 +286,9 @@ function draw_actions(ctx, ImGui, C, state, w, callbacks)
 
     ImGui.Spacing(ctx)
 
-    -- 2. Insert Tempo Map (grid follows music)
-    if ImGui.RadioButton(ctx, "Insert Tempo Map", state.action_mode == 1) then
-        state.action_mode = 1
-    end
-    if ImGui.IsItemHovered(ctx, C("HoveredFlags_ForTooltip")) then
-        ImGui.SetTooltip(ctx, "Insert tempo/time signature markers at detected bar positions.\nAligns REAPER's grid to the audio.")
-    end
-
-    if state.action_mode == 1 then
-        ImGui.Indent(ctx, 20)
-        if ImGui.RadioButton(ctx, string.format("Constant (%.1f BPM)", state.tempo), state.tempo_mode == 1) then
-            state.tempo_mode = 1
-        end
-        if ImGui.IsItemHovered(ctx, C("HoveredFlags_ForTooltip")) then
-            ImGui.SetTooltip(ctx, "Single tempo marker at song start.\nBest for: tracks with steady tempo.")
-        end
-        if ImGui.RadioButton(ctx, "Variable (per bar)", state.tempo_mode == 2) then
-            state.tempo_mode = 2
-        end
-        if ImGui.IsItemHovered(ctx, C("HoveredFlags_ForTooltip")) then
-            ImGui.SetTooltip(ctx, "One tempo marker per bar with local BPM.\nBest for: live recordings, rubato, free-time.")
-        end
-        ImGui.Unindent(ctx, 20)
-    end
-
     ImGui.Spacing(ctx)
 
-    -- 3. Insert Stretch Markers (markers for manual editing)
+    -- 2. Insert Stretch Markers
     if ImGui.RadioButton(ctx, "Insert Stretch Markers", state.action_mode == 2) then
         state.action_mode = 2
     end
@@ -333,33 +308,8 @@ function draw_actions(ctx, ImGui, C, state, w, callbacks)
         local q_changed, q_val = ImGui.Checkbox(ctx, "Quantize to grid", state.quantize_markers)
         if q_changed then state.quantize_markers = q_val end
         if ImGui.IsItemHovered(ctx, C("HoveredFlags_ForTooltip")) then
-            ImGui.SetTooltip(ctx, "Straighten timing: evenly space beats within each detected bar.\nSmall corrections (0-20ms). Does not modify the tempo map.")
+            ImGui.SetTooltip(ctx, "Snap each stretch marker to the nearest beat in\nREAPER's project grid. Does not modify the tempo map.")
         end
-        ImGui.Unindent(ctx, 20)
-    end
-
-    ImGui.Spacing(ctx)
-
-    -- 4. Match & Quantize (most advanced - tempo map + stretch markers)
-    if ImGui.RadioButton(ctx, "Match & Quantize", state.action_mode == 4) then
-        state.action_mode = 4
-    end
-    if ImGui.IsItemHovered(ctx, C("HoveredFlags_ForTooltip")) then
-        ImGui.SetTooltip(ctx, "Two steps in one click:\n1. Insert variable tempo map (aligns REAPER grid to audio)\n2. Insert stretch markers quantized to that grid\n\nResult: tight timing with minimal stretching.")
-    end
-
-    if state.action_mode == 4 then
-        ImGui.Indent(ctx, 20)
-        if ImGui.RadioButton(ctx, string.format("Every beat (%d markers)", #state.beats), state.marker_mode == 1) then
-            state.marker_mode = 1
-        end
-        if ImGui.RadioButton(ctx, string.format("Downbeats only (%d markers)", #state.downbeats), state.marker_mode == 2) then
-            state.marker_mode = 2
-        end
-        draw_stretch_mode(ctx, ImGui, C, state)
-        ImGui.PushStyleColor(ctx, C("Col_Text"), c.text_dim)
-        ImGui.Text(ctx, "Inserts tempo map first, then quantizes markers to it.")
-        ImGui.PopStyleColor(ctx, 1)
         ImGui.Unindent(ctx, 20)
     end
 
@@ -404,10 +354,7 @@ function draw_apply(ctx, ImGui, C, state, w, callbacks)
     end
     ImGui.PopStyleColor(ctx, n)
     if ImGui.IsItemHovered(ctx, C("HoveredFlags_ForTooltip")) then
-        local tip = state.action_mode == 1
-            and "Insert tempo markers into the project. Ctrl+Z to undo."
-            or "Insert stretch markers into the media item. Ctrl+Z to undo."
-        ImGui.SetTooltip(ctx, tip)
+        ImGui.SetTooltip(ctx, "Apply the selected action. Ctrl+Z to undo.")
     end
 end
 

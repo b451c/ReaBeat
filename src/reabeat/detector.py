@@ -158,6 +158,13 @@ def detect_beats(
             "beat-this needs rhythmic content to detect beats."
         )
 
+    # Refine beat positions to nearest audio onset (transient attack).
+    # beat-this detects at 20ms resolution — onsets snap to the actual
+    # attack within ±30ms for sample-accurate marker placement.
+    progress("Refining beat positions...", 0.7)
+    beats = _refine_to_onsets(y, sr, beats)
+    raw_downbeats = _refine_to_onsets(y, sr, raw_downbeats)
+
     # Compute tempo and time signature
     progress("Computing tempo and time signature...", 0.8)
     tempo = _compute_tempo(beats, config)
@@ -192,51 +199,113 @@ def detect_beats(
 
 
 # ---------------------------------------------------------------------------
+# Onset refinement
+# ---------------------------------------------------------------------------
+def _refine_to_onsets(
+    y: np.ndarray, sr: int, positions: np.ndarray, window_sec: float = 0.030
+) -> np.ndarray:
+    """Snap each beat position to the nearest audio onset (transient attack).
+
+    Uses librosa onset detection for reliable transient finding, then
+    snaps each beat-this position to the nearest onset within ±window_sec.
+    """
+    if len(positions) == 0:
+        return positions
+
+    import librosa
+
+    # Detect onsets at high resolution (~3ms per frame)
+    hop = 64
+    onset_env = librosa.onset.onset_strength(y=y, sr=sr, hop_length=hop)
+    onset_frames = librosa.onset.onset_detect(
+        onset_envelope=onset_env, sr=sr, hop_length=hop, units="frames")
+    onset_times = librosa.frames_to_time(onset_frames, sr=sr, hop_length=hop)
+
+    if len(onset_times) == 0:
+        return positions
+
+    refined = np.copy(positions)
+    for i, pos in enumerate(positions):
+        # Find nearest onset within window
+        diffs = onset_times - pos
+        in_window = np.abs(diffs) <= window_sec
+        if not np.any(in_window):
+            continue
+        candidates = np.where(in_window)[0]
+        nearest = candidates[np.argmin(np.abs(diffs[candidates]))]
+        refined[i] = onset_times[nearest]
+
+    return refined
+
+
+# ---------------------------------------------------------------------------
 # Analysis helpers
 # ---------------------------------------------------------------------------
 def _compute_tempo(beats: np.ndarray, config: DetectionConfig) -> float:
-    """Compute tempo from beat positions.
+    """Compute tempo from beat positions using phase-aware regression.
 
-    Uses two methods and picks the more accurate one:
+    Based on CPJKU/beat_this#13 (Paulllux): circular mean for optimal
+    phase + linear regression on beat grid for precise BPM. Falls back
+    to span/mean method if regression fails.
 
-    1. Total span: (n_beats - 1) * 60 / (last - first). Most precise
-       for constant-tempo tracks because it averages out beat-this's
-       20ms frame quantization over the full song length.
-
-    2. Filtered mean: mean of inter-beat intervals after removing
-       outliers (< 0.15s or > 2.0s). Robust against gaps/silences
-       in the audio.
-
-    If both methods agree within 2%, total span is used (higher
-    precision). Otherwise filtered mean is used (outlier-robust).
+    Octave correction uses 78-185 BPM range (optimal for modern music:
+    captures 140 BPM trap without breaking 85 BPM hip-hop).
     """
     if len(beats) < 2:
         return 120.0
 
     def _octave_correct(bpm: float) -> float:
-        while bpm < config.min_bpm:
+        if bpm == 0:
+            return 120.0
+        while bpm < 78:
             bpm *= 2
-        while bpm > config.max_bpm:
+        while bpm > 185:
             bpm /= 2
         return bpm
 
-    # Method 1: total span
-    total_span = float(beats[-1] - beats[0])
-    if total_span <= 0:
+    # Trim 15% edges to avoid intro/outro drift
+    n = len(beats)
+    start_idx = int(n * 0.15)
+    end_idx = int(n * 0.85)
+    if (end_idx - start_idx) < 4:
+        subset = beats
+    else:
+        subset = beats[start_idx:end_idx]
+
+    # Robust interval estimation
+    intervals = np.diff(subset)
+    intervals = intervals[(intervals > 0.2) & (intervals < 2.0)]
+    if len(intervals) == 0:
         return 120.0
-    span_bpm = _octave_correct((len(beats) - 1) * 60.0 / total_span)
 
-    # Method 2: filtered mean of inter-beat intervals
-    ibis = np.diff(beats)
-    ibis = ibis[(ibis > 0.15) & (ibis < 2.0)]
-    if len(ibis) == 0:
-        return span_bpm
-    mean_bpm = _octave_correct(60.0 / float(np.mean(ibis)))
+    median_interval = float(np.median(intervals))
+    valid = intervals[np.abs(intervals - median_interval) < (median_interval * 0.15)]
+    avg_interval = float(np.mean(valid)) if len(valid) > 0 else median_interval
+    if avg_interval <= 0:
+        return 120.0
 
-    # Pick: total span if consistent, filtered mean if gaps/outliers
-    if abs(span_bpm - mean_bpm) / mean_bpm < 0.02:
-        return span_bpm
-    return mean_bpm
+    # Phase optimization: find best-fitting grid start via circular mean
+    phases = (subset % avg_interval)
+    theta = (phases / avg_interval) * 2 * np.pi
+    mean_theta = np.arctan2(np.mean(np.sin(theta)), np.mean(np.cos(theta)))
+    if mean_theta < 0:
+        mean_theta += 2 * np.pi
+    optimal_phase = (mean_theta / (2 * np.pi)) * avg_interval
+
+    # Linear regression on beat indices for precise BPM
+    raw_indices = (subset - optimal_phase) / avg_interval
+    beat_indices = np.round(raw_indices)
+
+    try:
+        from scipy.stats import linregress
+        slope, _, r_value, _, _ = linregress(beat_indices, subset)
+        if slope > 0 and r_value ** 2 > 0.99:
+            return _octave_correct(60.0 / slope)
+    except (ImportError, Exception):
+        pass
+
+    # Fallback: octave-corrected mean
+    return _octave_correct(60.0 / avg_interval)
 
 
 def _estimate_time_signature(

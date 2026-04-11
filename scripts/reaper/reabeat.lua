@@ -101,8 +101,7 @@ local state = {
     audio_duration = 0,
 
     -- UI
-    action_mode = 3,         -- 3=Match Tempo, 1=Tempo Map, 2=Stretch Markers, 4=Match & Quantize
-    tempo_mode = 1,          -- 1=Constant, 2=Variable (per bar)
+    action_mode = 3,         -- 3=Match Tempo, 2=Insert Stretch Markers
     marker_mode = 1,         -- 1=Every beat, 2=Downbeats only
     target_bpm = nil,        -- Target BPM for Match Tempo (nil = use project BPM)
     align_to_bar = true,     -- Auto-align first downbeat to bar after Match Tempo
@@ -366,28 +365,7 @@ local function apply_action()
     local stretch_flag = STRETCH_FLAGS[state.stretch_mode]
 
     local count = 0
-    if state.action_mode == 1 then
-        -- Tempo Map
-        count = actions.insert_tempo_map(
-            state.downbeats, state.tempo,
-            state.time_sig_num, state.time_sig_denom,
-            state.item, state.tempo_mode == 2)
-        if count > 0 then
-            state.status_message = string.format("%d tempo markers inserted", count)
-            state.status_color = "success"
-        end
-    elseif state.action_mode == 2 then
-        -- Stretch Markers (optionally quantized to even spacing within bars)
-        local do_quantize = state.quantize_markers
-        local use_downbeats = state.marker_mode == 2
-        local beat_list = use_downbeats and state.downbeats or state.beats
-        count = actions.insert_stretch_markers(state.take, beat_list, state.item, do_quantize, stretch_flag, state.downbeats, state.time_sig_num)
-        if count > 0 then
-            local label = do_quantize and "quantized" or "inserted"
-            state.status_message = string.format("%d stretch markers %s", count, label)
-            state.status_color = "success"
-        end
-    elseif state.action_mode == 3 then
+    if state.action_mode == 3 then
         -- Match Tempo
         local target = state.target_bpm or actions.get_project_bpm()
         if target and target > 0 and state.tempo > 0 then
@@ -406,23 +384,16 @@ local function apply_action()
             state.status_message = "Set a target BPM first"
             state.status_color = "warning"
         end
-    elseif state.action_mode == 4 then
-        -- Match & Quantize: tempo map first, then stretch markers snapped to it
-        local tempo_count = actions.insert_tempo_map(
-            state.downbeats, state.tempo,
-            state.time_sig_num, state.time_sig_denom,
-            state.item, true, true)  -- variable=true, skip_snap=true
-        if tempo_count > 0 then
-            -- Force timeline refresh so TimeMap2 sees the new tempo markers
-            reaper.UpdateTimeline()
-            local use_downbeats = state.marker_mode == 2
-            local beat_list = use_downbeats and state.downbeats or state.beats
-            count = actions.insert_stretch_markers(state.take, beat_list, state.item, true, stretch_flag, state.downbeats, state.time_sig_num)
-            if count > 0 then
-                state.status_message = string.format(
-                    "%d tempo markers + %d stretch markers (quantized)", tempo_count, count)
-                state.status_color = "success"
-            end
+    elseif state.action_mode == 2 then
+        -- Insert Stretch Markers (optionally quantized to REAPER grid)
+        local do_quantize = state.quantize_markers
+        local use_downbeats = state.marker_mode == 2
+        local beat_list = use_downbeats and state.downbeats or state.beats
+        count = actions.insert_stretch_markers(state.take, beat_list, state.item, do_quantize, stretch_flag)
+        if count > 0 then
+            local label = do_quantize and "quantized" or "inserted"
+            state.status_message = string.format("%d stretch markers %s", count, label)
+            state.status_color = "success"
         end
     end
     state.last_apply_count = count

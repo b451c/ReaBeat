@@ -1,3 +1,3 @@
 """ReaBeat — Neural beat detection and tempo mapping for REAPER."""
 
-__version__ = "1.2.1"
+__version__ = "1.3.0"

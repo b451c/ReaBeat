@@ -3,106 +3,11 @@
 
 local actions = {}
 
---- Insert tempo/time signature markers at detected bar positions.
--- Snaps first beat to nearest bar boundary for grid alignment.
--- @return Number of markers inserted, or 0 if cancelled
-function actions.insert_tempo_map(downbeats, tempo, ts_num, ts_denom, item, variable, skip_snap)
-    if not downbeats or #downbeats == 0 then return 0 end
-
-    -- Warn if existing tempo markers will be affected
-    local existing = reaper.CountTempoTimeSigMarkers(0)
-    if existing > 1 then
-        local ok = reaper.ShowMessageBox(
-            string.format(
-                "Project has %d existing tempo markers.\n\n" ..
-                "ReaBeat will ADD new markers (existing ones stay).\n" ..
-                "Use Ctrl+Z to undo if needed.\n\nContinue?",
-                existing),
-            "ReaBeat - Tempo Map", 1)
-        if ok ~= 1 then return 0 end
-    end
-
-    local item_pos = reaper.GetMediaItemInfo_Value(item, "D_POSITION")
-    item_pos = math.max(0, item_pos)
-
-    -- Snap first downbeat to nearest bar line using TimeMap2 (grid-independent).
-    -- skip_snap: used by Match & Quantize to keep tempo map aligned with beat
-    -- positions, so stretch marker quantization gives accurate results.
-    local first_beat_time = item_pos + downbeats[1]
-    local snap_offset = 0
-    if not skip_snap then
-        local _, measures = reaper.TimeMap2_timeToBeats(0, first_beat_time)
-        local bar_time = reaper.TimeMap2_beatsToTime(0, 0, measures)
-        local next_bar_time = reaper.TimeMap2_beatsToTime(0, 0, measures + 1)
-        local snapped_time
-        if math.abs(first_beat_time - bar_time) <= math.abs(first_beat_time - next_bar_time) then
-            snapped_time = bar_time
-        else
-            snapped_time = next_bar_time
-        end
-        snap_offset = snapped_time - first_beat_time
-    end
-
-    reaper.Undo_BeginBlock()
-    reaper.PreventUIRefresh(1)
-
-    local count = 0
-
-    if not variable then
-        -- Constant tempo: single marker at snapped bar position
-        reaper.SetTempoTimeSigMarker(0, -1,
-            first_beat_time + snap_offset, -1, -1,
-            tempo,
-            math.floor(ts_num),
-            math.floor(ts_denom),
-            false)
-        count = 1
-    else
-        -- Variable tempo: one marker per bar (downbeat).
-        -- Per-bar keeps the timeline clean. Per-beat precision is handled
-        -- by stretch markers (per-item), matching how Ableton/Pro Tools
-        -- use clip-level warp markers for beat-level alignment.
-        for i = 1, #downbeats do
-            local db_time = item_pos + downbeats[i] + snap_offset
-            local bar_bpm = tempo
-
-            if i < #downbeats then
-                local bar_duration = downbeats[i + 1] - downbeats[i]
-                if bar_duration > 0 then
-                    bar_bpm = (ts_num / bar_duration) * 60.0
-                    bar_bpm = math.max(30, math.min(300, bar_bpm))
-                end
-            end
-
-            local set_ts = (i == 1)
-            reaper.SetTempoTimeSigMarker(0, -1,
-                db_time, -1, -1,
-                bar_bpm,
-                set_ts and math.floor(ts_num) or 0,
-                set_ts and math.floor(ts_denom) or 0,
-                true)
-            count = count + 1
-        end
-    end
-
-    reaper.UpdateTimeline()
-    reaper.PreventUIRefresh(-1)
-
-    local label = variable
-        and string.format("ReaBeat: Insert variable tempo map (%d markers)", count)
-        or string.format("ReaBeat: Insert constant tempo (%.1f BPM)", tempo)
-    reaper.Undo_EndBlock(label, -1)
-
-    return count
-end
-
 --- Insert stretch markers at detected beat positions.
--- @param quantize_to_grid If true, straightens timing to even beats within each bar
+-- @param quantize_to_grid If true, snaps markers to nearest beat in REAPER's project grid
 -- @param stretch_flag Stretch algorithm: 1=balanced, 2=tonal, 4=transient (nil=no change)
--- @param downbeats Downbeat positions (required when quantize_to_grid=true)
--- @param ts_num Time signature numerator (required when quantize_to_grid=true)
 -- @return Number of markers inserted, or 0 if cancelled
-function actions.insert_stretch_markers(take, beat_times, item, quantize_to_grid, stretch_flag, downbeats, ts_num)
+function actions.insert_stretch_markers(take, beat_times, item, quantize_to_grid, stretch_flag)
     if not take or not beat_times or #beat_times == 0 then return 0 end
 
     -- Warn if existing stretch markers will be replaced
@@ -128,54 +33,55 @@ function actions.insert_stretch_markers(take, beat_times, item, quantize_to_grid
 
     local count = 0
     local take_offset = reaper.GetMediaItemTakeInfo_Value(take, "D_STARTOFFS")
+    local playrate = reaper.GetMediaItemTakeInfo_Value(take, "D_PLAYRATE")
 
-    -- Build positions: raw or quantized (evenly spaced within each detected bar).
-    -- Uses detected downbeats directly instead of REAPER's TimeMap2 to avoid
-    -- cumulative drift from per-bar BPM rounding in the tempo map.
-    local positions = {}
-    if quantize_to_grid and downbeats and #downbeats >= 2 and ts_num then
+    -- Build marker pairs: source position (where audio IS) and target
+    -- position (where we WANT it to play). Quantize mode snaps each beat
+    -- to the nearest beat in REAPER's project grid (TimeMap2 per-bar).
+    local item_pos = reaper.GetMediaItemInfo_Value(item, "D_POSITION")
+    local markers = {}  -- {src=source_pos, dst=target_pos}
+    if quantize_to_grid then
         for _, bt in ipairs(beat_times) do
-            -- Find which bar this beat belongs to
-            local bar_start, bar_end
-            for j = 1, #downbeats do
-                if j < #downbeats then
-                    if bt >= downbeats[j] - 0.03 and bt < downbeats[j + 1] - 0.03 then
-                        bar_start = downbeats[j]
-                        bar_end = downbeats[j + 1]
-                        break
-                    end
-                else
-                    if bt >= downbeats[j] - 0.03 then
-                        bar_start = downbeats[j]
-                        bar_end = nil
-                        break
-                    end
-                end
+            -- Where this beat plays on the timeline
+            local timeline = item_pos + (bt) / playrate
+
+            -- Snap to nearest beat in REAPER's grid (per-bar, no drift)
+            local _, measures = reaper.TimeMap2_timeToBeats(0, timeline)
+            local bar_start = reaper.TimeMap2_beatsToTime(0, 0, measures)
+            local bar_end = reaper.TimeMap2_beatsToTime(0, 0, measures + 1)
+            local bar_dur = bar_end - bar_start
+            local _, grid_ts_num = reaper.TimeMap_GetTimeSigAtTime(0, timeline)
+            if grid_ts_num == 0 then grid_ts_num = 4 end
+
+            local pos_in_bar = timeline - bar_start
+            local beat_in_bar = pos_in_bar / bar_dur * grid_ts_num
+            local nearest = math.max(0, math.min(grid_ts_num, math.floor(beat_in_bar + 0.5)))
+            local grid_time = bar_start + (nearest / grid_ts_num) * bar_dur
+
+            local delta = grid_time - timeline
+            -- Skip if beat is closer to a DIFFERENT grid beat than the nearest
+            -- (more than half a beat interval away = wrong beat entirely)
+            local half_beat = bar_dur / grid_ts_num / 2
+            if math.abs(delta) >= half_beat then
+                grid_time = timeline
             end
 
-            if bar_start and bar_end then
-                local bar_duration = bar_end - bar_start
-                local beat_in_bar = (bt - bar_start) / bar_duration * ts_num
-                local quantized_beat = math.floor(beat_in_bar + 0.5)
-                local quantized_pos = bar_start + (quantized_beat / ts_num) * bar_duration
-                local delta = quantized_pos - bt
-                -- Only apply correction if small (<50ms). Large deltas indicate
-                -- inconsistent beat detection (e.g. half-notes instead of quarters).
-                local use_quantized = math.abs(delta) < 0.050
-                positions[#positions + 1] = (use_quantized and quantized_pos or bt) + take_offset
-            else
-                positions[#positions + 1] = bt + take_offset
-            end
+            -- Target source position for this grid time
+            local dst = (grid_time - item_pos) * playrate + take_offset
+            markers[#markers + 1] = { src = bt + take_offset, dst = dst }
         end
     else
         for _, bt in ipairs(beat_times) do
-            positions[#positions + 1] = bt + take_offset
+            markers[#markers + 1] = { src = bt + take_offset, dst = bt + take_offset }
         end
     end
 
-    -- Insert stretch markers
-    for _, pos in ipairs(positions) do
-        local idx = reaper.SetTakeStretchMarker(take, -1, pos)
+    -- Insert stretch markers with both source and target positions.
+    -- srcpos = where the audio transient IS in source media
+    -- pos = source position that plays at grid_time: (grid_time - item_pos) * playrate
+    -- Because: timeline = item_pos + pos / playrate → pos = (timeline - item_pos) * playrate
+    for _, m in ipairs(markers) do
+        local idx = reaper.SetTakeStretchMarker(take, -1, m.dst, m.src)
         if idx >= 0 then
             count = count + 1
         end

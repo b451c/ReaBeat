@@ -12,9 +12,7 @@ ReaBeat detects beats, downbeats, tempo, and time signature in any audio using [
 
 - **Detect beats** - state-of-the-art neural beat tracking, ~2-3 seconds per song
 - **Match tempo** - one click to adjust playrate to project BPM or custom target (pitch preserved, auto-aligned to bar)
-- **Insert tempo map** - constant BPM or variable per-bar markers (snaps to grid)
-- **Insert stretch markers** - at every beat or every downbeat, with quality mode selection (Balanced/Transient/Tonal)
-- **Match & Quantize** - combo: tempo map + quantized stretch markers in one click
+- **Insert stretch markers** - at every beat or every downbeat, with quality mode selection (Balanced/Transient/Tonal), optional quantize to REAPER's project grid
 - **Editable BPM** - override detected tempo when you know better
 - **Neural downbeats** - accurate bar boundary detection using dedicated model head
 - **Multi-item cache** - switch between items without losing detection results
