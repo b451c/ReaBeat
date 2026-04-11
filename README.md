@@ -6,6 +6,8 @@
 
 ReaBeat detects beats, downbeats, tempo, and time signature in any audio using [beat-this](https://github.com/CPJKU/beat_this) (CPJKU, ISMIR 2024), then writes results to REAPER as tempo markers, stretch markers, or adjusts playrate to match your session tempo.
 
+[![ReaBeat demo](https://img.youtube.com/vi/sDLToLtF4C8/0.jpg)](https://youtu.be/sDLToLtF4C8)
+
 ![ReaBeat UI](screens/ReaBeat.png)
 
 ## What It Does
