@@ -187,7 +187,7 @@ function draw_results(ctx, ImGui, C, state, w)
     end
     ImGui.PopStyleColor(ctx, 4)
     if ImGui.IsItemHovered(ctx, C("HoveredFlags_ForTooltip")) then
-        ImGui.SetTooltip(ctx, "Detected tempo. Click to edit if detection is wrong.\nAffects Match Tempo rate and constant tempo map.")
+        ImGui.SetTooltip(ctx, "Detected tempo. Click to edit if detection is wrong.\nAffects Match Tempo rate calculation.")
     end
 
     ImGui.SameLine(ctx)
