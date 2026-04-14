@@ -13,12 +13,12 @@
 
 // --- Globals ---
 
-// Linux: use standalone JUCE window (SWELL HWND→X11 embedding doesn't work reliably)
-// macOS/Windows: use dockable SWELL dialog with embedded JUCE component
-#if defined(__linux__) || defined(__FreeBSD__)
-static std::unique_ptr<PluginWindow> g_pluginWindow;
-#else
+// macOS: dockable SWELL dialog with embedded JUCE component
+// Linux/Windows: standalone JUCE window (SWELL/Win32 embedding issues)
+#if defined(__APPLE__)
 static std::unique_ptr<DockableWindow> g_window;
+#else
+static std::unique_ptr<PluginWindow> g_pluginWindow;
 #endif
 static int g_cmdToggle = 0;
 static bool g_juceInitialised = false;
@@ -45,7 +45,7 @@ static bool onAction(int command, int)
         g_juceInitialised = true;
     }
 
-#if defined(__linux__) || defined(__FreeBSD__)
+#if !defined(__APPLE__)
     if (!g_pluginWindow)
     {
         auto* content = new MainComponent();
@@ -80,7 +80,7 @@ static int toggleActionState(int command)
 {
     if (command == g_cmdToggle)
     {
-#if defined(__linux__) || defined(__FreeBSD__)
+#if !defined(__APPLE__)
         if (g_pluginWindow && g_pluginWindow->isVisible())
             return 1;
 #else
@@ -96,7 +96,7 @@ static int toggleActionState(int command)
 
 static void onExit()
 {
-#if defined(__linux__) || defined(__FreeBSD__)
+#if !defined(__APPLE__)
     g_pluginWindow.reset();
 #else
     g_window.reset();
