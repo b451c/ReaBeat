@@ -117,6 +117,7 @@ jobs:
           path: |
             build/${{ matrix.artifact }}
             build/libonnxruntime*
+            build/onnxruntime.dll
 
   release:
     needs: build

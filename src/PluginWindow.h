@@ -30,12 +30,17 @@ private:
     {
         if (!isVisible()) return;
 
+#if defined(__APPLE__)
+        // macOS: float above REAPER when focused, normal when another app is active
         bool shouldBeOnTop = juce::Process::isForegroundProcess();
         if (shouldBeOnTop != wasOnTop_)
         {
             setAlwaysOnTop(shouldBeOnTop);
             wasOnTop_ = shouldBeOnTop;
         }
+#endif
+        // Linux/Windows: no always-on-top (isForegroundProcess unreliable,
+        // causes focus issues and track OFFLINE state)
     }
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PluginWindow)
