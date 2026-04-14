@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <index version="1" name="ReaBeat">
   <category name="Extensions">
-    <reapack name="ReaBeat" type="extension" desc="Neural beat detection and tempo mapping">
+    <reapack name="ReaBeat.ext" type="extension" desc="Neural beat detection and tempo mapping">
       <metadata>
         <description><![CDATA[{\rtf1\ansi\deff0{\fonttbl{\f0 Calibri;}}
 \f0\fs28 ReaBeat - Neural Beat Detection for REAPER\line
@@ -46,7 +46,7 @@ State-of-the-art beat detection powered by beat-this (CPJKU, ISMIR 2024).\line
     </reapack>
   </category>
   <category name="Toolbar Icons">
-    <reapack name="ReaBeat toolbar icon" type="data" desc="Toolbar icon for ReaBeat extension">
+    <reapack name="ReaBeat toolbar icons" type="data" desc="Toolbar icon for ReaBeat extension">
       <version name="2.0.0" author="b451c" time="2026-04-14T00:00:00Z">
         <changelog><![CDATA[Toolbar icon for ReaBeat (100%, 150%, 200% DPI)]]></changelog>
         <source file="toolbar_icons/ReaBeat.png">https://raw.githubusercontent.com/b451c/ReaBeat/main/images/icons/reaper/ReaBeat.png</source>
