@@ -95,10 +95,14 @@ jobs:
       - name: Bundle ONNX Runtime
         run: |
           if [ "$RUNNER_OS" = "Linux" ]; then
-            # Find the actual .so file (not symlinks)
-            find vendor/onnxruntime/lib -name "libonnxruntime.so.*.*.*" -exec cp {} "build/libonnxruntime-${{ matrix.platform }}.so" \;
+            # Copy actual .so file with soname-compatible release name
+            # Plugin links to libonnxruntime.so.1 (soname)
+            find vendor/onnxruntime/lib -name "libonnxruntime.so.*.*.*" ! -type l \
+              -exec cp {} "build/libonnxruntime.so.1-${{ matrix.platform }}" \;
           elif [ "$RUNNER_OS" = "macOS" ]; then
-            find vendor/onnxruntime/lib -name "libonnxruntime.*.dylib" ! -type l -exec cp {} "build/libonnxruntime-${{ matrix.platform }}.dylib" \;
+            # Plugin links to @rpath/libonnxruntime.VERSION.dylib
+            find vendor/onnxruntime/lib -name "libonnxruntime.*.*.*.dylib" ! -type l \
+              -exec cp {} "build/libonnxruntime-${{ matrix.platform }}.dylib" \;
           fi
         shell: bash
         if: runner.os != 'Windows'
@@ -127,6 +131,7 @@ jobs:
             **/*.dylib
             **/*.dll
             **/*.so
+            **/libonnxruntime.so.1-*
           body: |
             ## ReaBeat ${{ github.ref_name }}
 

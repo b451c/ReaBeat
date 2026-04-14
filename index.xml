@@ -45,9 +45,9 @@ State-of-the-art beat detection powered by beat-this (CPJKU, ISMIR 2024).\line
         <source platform="darwin64" file="libonnxruntime.1.20.1.dylib">https://github.com/b451c/ReaBeat/releases/download/v2.0.0/libonnxruntime-macOS-x86_64.dylib</source>
         <source platform="win64" file="reaper_reabeat-x64.dll">https://github.com/b451c/ReaBeat/releases/download/v2.0.0/reaper_reabeat-x64.dll</source>
         <source platform="linux64" file="reaper_reabeat-x86_64.so">https://github.com/b451c/ReaBeat/releases/download/v2.0.0/reaper_reabeat-x86_64.so</source>
-        <source platform="linux64" file="libonnxruntime.so">https://github.com/b451c/ReaBeat/releases/download/v2.0.0/libonnxruntime-Linux-x86_64.so</source>
+        <source platform="linux64" file="libonnxruntime.so.1">https://github.com/b451c/ReaBeat/releases/download/v2.0.0/libonnxruntime.so.1-Linux-x86_64</source>
         <source platform="linux-aarch64" file="reaper_reabeat-aarch64.so">https://github.com/b451c/ReaBeat/releases/download/v2.0.0/reaper_reabeat-aarch64.so</source>
-        <source platform="linux-aarch64" file="libonnxruntime.so">https://github.com/b451c/ReaBeat/releases/download/v2.0.0/libonnxruntime-Linux-aarch64.so</source>
+        <source platform="linux-aarch64" file="libonnxruntime.so.1">https://github.com/b451c/ReaBeat/releases/download/v2.0.0/libonnxruntime.so.1-Linux-aarch64</source>
       </version>
     </reapack>
   </category>
