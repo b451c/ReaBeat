@@ -161,6 +161,14 @@ reaper_reabeat.dylib / .dll / .so
 | `MainComponent` | Full UI with waveform editor |
 | `ModelManager` | Model download and caching |
 
+## Tested On
+
+| Platform | OS | Architecture | REAPER |
+|----------|----|-------------|--------|
+| macOS | macOS 26.3.1 (Tahoe) | Apple M1 Pro (arm64) | v7.x |
+| Windows | Windows 11 Enterprise | x64 | v7.6.8 |
+| Linux | Ubuntu 25.10 (Questing Quokka), kernel 6.17.0-20-generic | aarch64 (ARM64) | v7.69 |
+
 ## Previous Version (v1.3.1)
 
 The Lua/Python version is preserved on the [`v1-lua` branch](https://github.com/b451c/ReaBeat/tree/v1-lua) and at the [`v1.3.1` tag](https://github.com/b451c/ReaBeat/releases/tag/v1.3.1). It requires Python + uv + beat-this. See the [v1 README](https://github.com/b451c/ReaBeat/blob/v1-lua/README.md) for installation.
