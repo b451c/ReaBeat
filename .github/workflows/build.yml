@@ -5,28 +5,42 @@ on:
     tags:
       - 'v*'
 
+env:
+  ORT_VERSION: "1.21.1"
+
 jobs:
   build:
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: macos-14
             platform: macOS-arm64
             artifact: reaper_reabeat-arm64.dylib
             cmake_flags: -DCMAKE_OSX_ARCHITECTURES=arm64
-          # Future platforms:
-          # - os: macos-13
-          #   platform: macOS-x86_64
-          #   artifact: reaper_reabeat-x86_64.dylib
-          #   cmake_flags: -DCMAKE_OSX_ARCHITECTURES=x86_64
-          # - os: windows-latest
-          #   platform: Windows-x64
-          #   artifact: reaper_reabeat-x64.dll
-          #   cmake_flags: ""
-          # - os: ubuntu-latest
-          #   platform: Linux-x86_64
-          #   artifact: reaper_reabeat-x86_64.so
-          #   cmake_flags: ""
+            ort_url: https://github.com/microsoft/onnxruntime/releases/download/v1.21.1/onnxruntime-osx-arm64-1.21.1.tgz
+            ort_extract: tar xz --strip-components=1 -C vendor/onnxruntime
+
+          - os: macos-13
+            platform: macOS-x86_64
+            artifact: reaper_reabeat-x86_64.dylib
+            cmake_flags: -DCMAKE_OSX_ARCHITECTURES=x86_64
+            ort_url: https://github.com/microsoft/onnxruntime/releases/download/v1.21.1/onnxruntime-osx-x86_64-1.21.1.tgz
+            ort_extract: tar xz --strip-components=1 -C vendor/onnxruntime
+
+          - os: windows-latest
+            platform: Windows-x64
+            artifact: reaper_reabeat-x64.dll
+            cmake_flags: -A x64
+            ort_url: https://github.com/microsoft/onnxruntime/releases/download/v1.21.1/onnxruntime-win-x64-1.21.1.zip
+            ort_extract: ""
+
+          - os: ubuntu-22.04
+            platform: Linux-x86_64
+            artifact: reaper_reabeat-x86_64.so
+            cmake_flags: ""
+            ort_url: https://github.com/microsoft/onnxruntime/releases/download/v1.21.1/onnxruntime-linux-x64-1.21.1.tgz
+            ort_extract: tar xz --strip-components=1 -C vendor/onnxruntime
 
     runs-on: ${{ matrix.os }}
     name: ${{ matrix.platform }}
@@ -36,11 +50,27 @@ jobs:
         with:
           submodules: true
 
-      - name: Download ONNX Runtime (macOS arm64)
-        if: matrix.platform == 'macOS-arm64'
+      - name: Download ONNX Runtime (Unix)
+        if: runner.os != 'Windows'
         run: |
           mkdir -p vendor/onnxruntime
-          curl -L https://github.com/microsoft/onnxruntime/releases/download/v1.21.1/onnxruntime-osx-arm64-1.21.1.tgz | tar xz --strip-components=1 -C vendor/onnxruntime
+          curl -L ${{ matrix.ort_url }} | ${{ matrix.ort_extract }}
+
+      - name: Download ONNX Runtime (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "${{ matrix.ort_url }}" -OutFile ort.zip
+          Expand-Archive ort.zip -DestinationPath ort_tmp
+          $dir = Get-ChildItem ort_tmp -Directory | Select-Object -First 1
+          New-Item -ItemType Directory -Force -Path vendor/onnxruntime | Out-Null
+          Copy-Item -Recurse "$($dir.FullName)/*" vendor/onnxruntime/
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfreetype6-dev libx11-dev libxrandr-dev libxcursor-dev libxinerama-dev libasound2-dev libwebkit2gtk-4.0-dev
 
       - name: Configure
         run: |
@@ -50,6 +80,13 @@ jobs:
 
       - name: Build
         run: cmake --build build --config Release
+
+      - name: Find artifact (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $file = Get-ChildItem -Recurse build -Filter "${{ matrix.artifact }}" | Select-Object -First 1
+          if ($file) { Copy-Item $file.FullName build/${{ matrix.artifact }} -ErrorAction SilentlyContinue }
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -78,14 +115,14 @@ jobs:
 
             Neural beat detection and tempo mapping for REAPER.
 
-            ### Platforms
+            ### Download
 
-            | Platform | File | Status |
-            |----------|------|--------|
-            | macOS (Apple Silicon) | `reaper_reabeat-arm64.dylib` | Available |
-            | macOS (Intel) | `reaper_reabeat-x86_64.dylib` | Planned |
-            | Windows 64-bit | `reaper_reabeat-x64.dll` | Planned |
-            | Linux 64-bit | `reaper_reabeat-x86_64.so` | Planned |
+            | Platform | File |
+            |----------|------|
+            | macOS (Apple Silicon) | `reaper_reabeat-arm64.dylib` |
+            | macOS (Intel) | `reaper_reabeat-x86_64.dylib` |
+            | Windows 64-bit | `reaper_reabeat-x64.dll` |
+            | Linux 64-bit | `reaper_reabeat-x86_64.so` |
 
             ### Installation
 
@@ -103,4 +140,4 @@ jobs:
 
             ---
 
-            [Ko-fi](https://ko-fi.com/b4s1c) | [Buy Me a Coffee](https://buymeacoffee.com/b4s1c) | [PayPal](https://paypal.me/bartoszsroczynski)
+            [Ko-fi](https://ko-fi.com/quickmd) | [Buy Me a Coffee](https://buymeacoffee.com/bsroczynskh) | [PayPal](https://www.paypal.com/paypalme/b451c)

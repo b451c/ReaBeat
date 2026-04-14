@@ -162,6 +162,11 @@ elseif(UNIX)
     OUTPUT_NAME "reaper_reabeat-x86_64"
   )
   target_link_libraries(reaper_reabeat PRIVATE dl pthread)
+
+  # SWELL mod stub for Linux (REAPER provides SWELL implementation)
+  target_sources(reaper_reabeat PRIVATE
+    ${WDL_DIR}/swell/swell-modstub-generic.cpp
+  )
 endif()
 
 # --- Install ---
