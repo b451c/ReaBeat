@@ -165,6 +165,12 @@ elseif(UNIX)
     SUFFIX ".so"
     PREFIX ""
     OUTPUT_NAME "reaper_reabeat-${LINUX_ARCH}"
+    BUILD_RPATH_USE_ORIGIN ON
+    INSTALL_RPATH "$ORIGIN"
+  )
+  # Look for libonnxruntime.so in same directory as the plugin
+  set_target_properties(reaper_reabeat PROPERTIES
+    LINK_FLAGS "-Wl,-rpath,$ORIGIN"
   )
   target_link_libraries(reaper_reabeat PRIVATE dl pthread)
 

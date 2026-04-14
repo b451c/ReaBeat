@@ -92,11 +92,24 @@ jobs:
           $file = Get-ChildItem -Recurse build -Filter "${{ matrix.artifact }}" | Select-Object -First 1
           if ($file) { Copy-Item $file.FullName build/${{ matrix.artifact }} -ErrorAction SilentlyContinue }
 
+      - name: Bundle ONNX Runtime
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            # Find the actual .so file (not symlinks)
+            find vendor/onnxruntime/lib -name "libonnxruntime.so.*.*.*" -exec cp {} "build/libonnxruntime-${{ matrix.platform }}.so" \;
+          elif [ "$RUNNER_OS" = "macOS" ]; then
+            find vendor/onnxruntime/lib -name "libonnxruntime.*.dylib" ! -type l -exec cp {} "build/libonnxruntime-${{ matrix.platform }}.dylib" \;
+          fi
+        shell: bash
+        if: runner.os != 'Windows'
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: build/${{ matrix.artifact }}
+          path: |
+            build/${{ matrix.artifact }}
+            build/libonnxruntime*
 
   release:
     needs: build
