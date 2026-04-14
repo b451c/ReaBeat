@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <index version="1" name="ReaBeat">
   <category name="Extensions">
-    <reapack name="reaper_reabeat" type="extension" desc="Neural beat detection and tempo mapping">
+    <reapack name="reaper_reabeat" type="extension" desc="ReaBeat: Neural beat detection and tempo mapping">
       <metadata>
         <description><![CDATA[{\rtf1\ansi\deff0{\fonttbl{\f0 Calibri;}}
 \f0\fs28 ReaBeat - Neural Beat Detection for REAPER\line
