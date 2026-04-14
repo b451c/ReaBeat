@@ -476,10 +476,20 @@ hr{border:none;border-top:1px solid var(--border);margin:48px 0}
   <thead><tr><th>Mode</th><th>Behavior</th><th>Use case</th></tr></thead>
   <tbody>
     <tr><td>Off</td><td>Markers placed at exact detected positions. No time warping.</td><td>Visual reference only</td></tr>
-    <tr><td>Constant tempo</td><td>Downbeat subdivision with internal grid. Each bar is mathematically divided into equal beats.</td><td>Single track, regular beat grid</td></tr>
-    <tr><td>Session grid</td><td>Downbeat subdivision + snap to REAPER's project grid. Markers align with the session tempo.</td><td>Multi-track sync, matching to session</td></tr>
+    <tr><td>Straight</td><td>Mathematical grid from detected BPM. Each beat spaced at exactly 60/BPM seconds.</td><td>Modern produced music, regular beat grid</td></tr>
+    <tr><td>Bars</td><td>Downbeat subdivision with variable bar lengths. Each bar is divided into equal beats independently.</td><td>Live recordings, variable tempo material</td></tr>
+    <tr><td>Project grid</td><td>Downbeat subdivision + snap to REAPER's project grid via TimeMap2.</td><td>Multi-track sync, matching to session grid</td></tr>
   </tbody>
 </table>
+
+<h3>Quantize Strength</h3>
+<p>When quantize mode is not Off, a <strong>Strength slider</strong> (0-100%) controls how far beats are moved toward the grid:</p>
+<ul>
+  <li><strong>100%</strong> (default) &mdash; full grid snap, beats land exactly on grid positions</li>
+  <li><strong>50%</strong> &mdash; halfway between original position and grid, preserves groove while tightening timing</li>
+  <li><strong>0%</strong> &mdash; no movement, equivalent to Off</li>
+</ul>
+<p>This is the same concept as quantize strength in Pro Tools, Ableton, Cubase, Logic and Studio One. The slider is hidden when quantize mode is Off.</p>
 
 <h3>Stretch quality</h3>
 <p>Choose the time-stretch algorithm quality for the markers:</p>
