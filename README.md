@@ -104,7 +104,7 @@ sudo apt install mesa-utils libcurl4
 
 ### First Run
 
-On first detection, ReaBeat downloads the neural network model (~79MB) to `~/.reabeat/models/`. This happens once - subsequent detections use the cached model.
+On first launch, ReaBeat downloads the neural network model (~79MB) to `~/.reabeat/models/`. The **Detect Beats** button is inactive during download - the status bar shows progress. This happens once; subsequent launches use the cached model.
 
 ## Usage
 
