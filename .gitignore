@@ -1,13 +1,13 @@
-# Python
-.venv/
-__pycache__/
-*.pyc
-*.egg-info/
-dist/
+# Build
 build/
+*.o
+*.dylib
+*.dll
+*.so
 
-# Testing
-.pytest_cache/
+# Vendor (downloaded, not committed)
+vendor/onnxruntime/
+.venv/
 
 # OS
 .DS_Store
@@ -19,19 +19,18 @@ Thumbs.db
 *.swp
 *.swo
 
-# uv
-uv.lock
-
 # Agent / internal
 CLAUDE.md
 HANDOVER.md
 PROGRESS.md
+RESEARCH.md
 forum-*.txt
 forum*.txt
+drafts/
 
 # Logs
 *.log
 /tmp/
 
-# Tests (local only)
+# Test data (local only)
 tests/
