@@ -123,11 +123,9 @@ endif()
 # --- Platform-specific ---
 
 if(APPLE)
-  # Determine architecture for output name
-  if(CMAKE_OSX_ARCHITECTURES STREQUAL "arm64" OR CMAKE_SYSTEM_PROCESSOR STREQUAL "arm64")
-    set(ARCH_NAME "arm64")
-  elseif(CMAKE_OSX_ARCHITECTURES STREQUAL "x86_64" OR CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64")
-    set(ARCH_NAME "x86_64")
+  # Determine architecture for output name (CMAKE_OSX_ARCHITECTURES takes priority)
+  if(CMAKE_OSX_ARCHITECTURES)
+    set(ARCH_NAME "${CMAKE_OSX_ARCHITECTURES}")
   else()
     set(ARCH_NAME "${CMAKE_SYSTEM_PROCESSOR}")
   endif()

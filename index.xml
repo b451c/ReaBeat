@@ -41,6 +41,8 @@ State-of-the-art beat detection powered by beat-this (CPJKU, ISMIR 2024).\line
 - Model auto-download on first use (~79MB)]]></changelog>
         <source platform="darwin-arm64" file="reaper_reabeat-arm64.dylib">https://github.com/b451c/ReaBeat/releases/download/v2.0.0/reaper_reabeat-arm64.dylib</source>
         <source platform="darwin-arm64" file="libonnxruntime.1.24.4.dylib">https://github.com/b451c/ReaBeat/releases/download/v2.0.0/libonnxruntime-macOS-arm64.dylib</source>
+        <source platform="darwin64" file="reaper_reabeat-x86_64.dylib">https://github.com/b451c/ReaBeat/releases/download/v2.0.0/reaper_reabeat-x86_64.dylib</source>
+        <source platform="darwin64" file="libonnxruntime.1.20.1.dylib">https://github.com/b451c/ReaBeat/releases/download/v2.0.0/libonnxruntime-macOS-x86_64.dylib</source>
         <source platform="win64" file="reaper_reabeat-x64.dll">https://github.com/b451c/ReaBeat/releases/download/v2.0.0/reaper_reabeat-x64.dll</source>
         <source platform="linux64" file="reaper_reabeat-x86_64.so">https://github.com/b451c/ReaBeat/releases/download/v2.0.0/reaper_reabeat-x86_64.so</source>
         <source platform="linux64" file="libonnxruntime.so">https://github.com/b451c/ReaBeat/releases/download/v2.0.0/libonnxruntime-Linux-x86_64.so</source>
