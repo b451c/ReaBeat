@@ -50,6 +50,12 @@ static bool onAction(int command, int)
     {
         auto* content = new MainComponent();
         g_pluginWindow = std::make_unique<PluginWindow>("ReaBeat", content);
+#ifdef _WIN32
+        // Windows: set REAPER main HWND as owner (ReaWwise pattern)
+        // Ensures correct z-order and cleanup on REAPER exit
+        g_pluginWindow->addToDesktop(g_pluginWindow->getDesktopWindowStyleFlags(),
+                                      (void*)GetMainHwnd());
+#endif
         g_pluginWindow->setVisible(true);
         return true;
     }
