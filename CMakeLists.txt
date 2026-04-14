@@ -156,10 +156,15 @@ elseif(WIN32)
   )
 
 elseif(UNIX)
+  if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
+    set(LINUX_ARCH "aarch64")
+  else()
+    set(LINUX_ARCH "x86_64")
+  endif()
   set_target_properties(reaper_reabeat PROPERTIES
     SUFFIX ".so"
     PREFIX ""
-    OUTPUT_NAME "reaper_reabeat-x86_64"
+    OUTPUT_NAME "reaper_reabeat-${LINUX_ARCH}"
   )
   target_link_libraries(reaper_reabeat PRIVATE dl pthread)
 

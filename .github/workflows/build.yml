@@ -39,6 +39,13 @@ jobs:
             ort_url: https://github.com/microsoft/onnxruntime/releases/download/v1.24.4/onnxruntime-linux-x64-1.24.4.tgz
             ort_extract: tar xz --strip-components=1 -C vendor/onnxruntime
 
+          - os: ubuntu-22.04-arm
+            platform: Linux-aarch64
+            artifact: reaper_reabeat-aarch64.so
+            cmake_flags: ""
+            ort_url: https://github.com/microsoft/onnxruntime/releases/download/v1.24.4/onnxruntime-linux-aarch64-1.24.4.tgz
+            ort_extract: tar xz --strip-components=1 -C vendor/onnxruntime
+
     runs-on: ${{ matrix.os }}
     name: ${{ matrix.platform }}
 
