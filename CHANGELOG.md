@@ -29,7 +29,9 @@ Complete rewrite as native C++ REAPER extension. No Python, no server, no instal
 - **Keyboard shortcuts** - Space (play/stop), Enter (apply), N (next gap), Cmd+Z/Shift+Z (undo/redo)
 - **Tooltips** - toggleable, 600ms delay
 - **Support menu** - Ko-fi, Buy Me a Coffee, PayPal, GitHub links
-- **Model auto-download** - 79MB ONNX model downloaded on first use to ~/.reabeat/models/
+- **Model auto-download** - 79MB ONNX model downloaded on first launch to ~/.reabeat/models/
+- **Async model download** - UI stays responsive during model download with progress updates
+- **Dockable window** - supports REAPER's docker on all platforms (macOS, Windows, Linux)
 - **Per-item detection cache** - switch items without re-detecting
 
 ### Changed
@@ -45,6 +47,9 @@ Complete rewrite as native C++ REAPER extension. No Python, no server, no instal
 - **PreventUIRefresh safety** - RAII guard ensures REAPER UI never freezes on exception
 - **BeatInterpolator hint double-add** - prevented same logit hint from filling multiple expected positions
 - **Detection cache limit** - evicts entries beyond 50 items to prevent unbounded memory growth
+- **Windows ORT DLL conflict** - delay-load + pre-load from UserPlugins prevents System32 v1.17 mismatch
+- **Linux window rendering** - SWELL_CreateXBridgeWindow bridges SWELL HWND to X11 for JUCE embedding
+- **Windows docking** - dual-mode Win32 dialog (WS_CHILD for docked, WS_POPUP for floating)
 
 ### Removed
 - Python backend, TCP server, Lua scripts, installer scripts (preserved on `v1-lua` branch)

@@ -277,7 +277,7 @@ hr{border:none;border-top:1px solid var(--border);margin:48px 0}
 <!-- First Run -->
 <h2 id="first-run">First Run</h2>
 
-<p>The first time you run a detection, ReaBeat downloads the neural network model (approximately 79 MB) to <code>~/.reabeat/models/</code>. This is a one-time download. Subsequent detections use the cached model file.</p>
+<p>On first launch, ReaBeat downloads the neural network model (approximately 79 MB) to <code>~/.reabeat/models/</code>. The <strong>Detect Beats</strong> button is inactive until the download completes. This is a one-time download. Subsequent launches use the cached model file.</p>
 
 <p>The model is <strong>beat_this_final0.onnx</strong> from CPJKU (ISMIR 2024), which achieves state-of-the-art F1 scores for beat and downbeat detection. It runs locally on your machine using ONNX Runtime &mdash; no internet connection needed after the initial download.</p>
 
@@ -296,7 +296,7 @@ hr{border:none;border-top:1px solid var(--border);margin:48px 0}
   <li>Optionally, assign a keyboard shortcut to this action for quick access</li>
 </ol>
 
-<p>ReaBeat opens as a floating, resizable window (minimum 500x300, maximum 600x900). The window stays on top of REAPER when REAPER is in focus, and moves to the normal window level when you switch to another application.</p>
+<p>ReaBeat opens as a resizable window (minimum 500x300, maximum 600x900) that supports REAPER's docker system. You can dock it into any REAPER docker panel by right-clicking the window title bar and selecting <strong>Dock window</strong>. To undock, right-click the docker tab and select <strong>Undock</strong>.</p>
 
 <p>When no detection has been run, a splash screen shows the ReaBeat icon with the tagline "Neural beat detection for REAPER."</p>
 
