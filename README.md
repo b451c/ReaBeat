@@ -16,7 +16,9 @@ REAPER has no built-in beat detection. ReaBeat adds it as a native extension: on
 
 **No Python. No server. No installer. Drop one file, detect beats.**
 
-![ReaBeat in action](images/ReaBeat_3.0.png)
+<p align="center">
+  <img src="images/ReaBeat_3.0.png" alt="ReaBeat in action" width="400">
+</p>
 
 ## Features
 
