@@ -104,6 +104,42 @@ private:
     BeatDetector& detector_;
 };
 
+class MainComponent::ModelDownloadThread : public juce::Thread
+{
+public:
+    ModelDownloadThread(MainComponent& owner)
+        : juce::Thread("ReaBeat Model Download"),
+          safeOwner_(&owner) {}
+
+    void run() override
+    {
+        bool ok = ModelManager::downloadModel([this](float progress)
+        {
+            auto safe = safeOwner_;
+            juce::MessageManager::callAsync([safe, progress]()
+            {
+                if (auto* owner = safe.getComponent())
+                {
+                    char msg[64];
+                    snprintf(msg, sizeof(msg), "Downloading model... %d%%",
+                             static_cast<int>(progress * 100));
+                    owner->setStatus(msg, Colors::warning);
+                }
+            });
+        });
+
+        auto safe = safeOwner_;
+        juce::MessageManager::callAsync([safe, ok]()
+        {
+            if (auto* owner = safe.getComponent())
+                owner->onModelDownloadComplete(ok);
+        });
+    }
+
+private:
+    juce::Component::SafePointer<MainComponent> safeOwner_;
+};
+
 // --- Constructor ---
 
 MainComponent::MainComponent()
@@ -481,6 +517,8 @@ MainComponent::~MainComponent()
     stopTimer();
     if (detectionThread_)
         detectionThread_->stopThread(5000);
+    if (modelDownloadThread_)
+        modelDownloadThread_->stopThread(10000);
 }
 
 // --- Paint ---
@@ -1599,23 +1637,26 @@ void MainComponent::loadOrDownloadModel()
         return;
     }
 
+    // Download asynchronously so UI stays responsive
     setStatus("Downloading model (79 MB)...", Colors::warning);
-    repaint();
+    detectButton.setEnabled(false);
 
-    bool ok = ModelManager::downloadModel([this](float progress)
-    {
-        char msg[64];
-        snprintf(msg, sizeof(msg), "Downloading model... %d%%", static_cast<int>(progress * 100));
-        setStatus(msg, Colors::warning);
-    });
+    modelDownloadThread_ = std::make_unique<ModelDownloadThread>(*this);
+    modelDownloadThread_->startThread();
+}
+
+void MainComponent::onModelDownloadComplete(bool ok)
+{
+    modelDownloadThread_.reset();
 
     if (ok)
     {
-        modelPath = ModelManager::getModelPath();
+        auto modelPath = ModelManager::getModelPath();
         if (!modelPath.empty() && beatDetector_.loadModel(modelPath))
         {
             modelLoaded_ = true;
             setStatus("Model downloaded - Ready", Colors::success);
+            detectButton.setEnabled(!detecting_);
         }
         else
         {

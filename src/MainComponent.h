@@ -136,6 +136,9 @@ private:
     class DetectionThread;
     std::unique_ptr<DetectionThread> detectionThread_;
 
+    class ModelDownloadThread;
+    std::unique_ptr<ModelDownloadThread> modelDownloadThread_;
+
     BeatDetector beatDetector_;
     bool modelLoaded_ = false;
 
@@ -150,6 +153,7 @@ private:
     void setActionMode(ActionMode mode);
     void setStatus(const juce::String& msg, juce::Colour colour);
     void loadOrDownloadModel();
+    void onModelDownloadComplete(bool ok);
 
     // Custom radio button painting
     void paintRadioButton(juce::Graphics& g, juce::ToggleButton& btn);
