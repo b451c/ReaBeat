@@ -8,7 +8,7 @@
 
 Neural beat detection and tempo mapping for [REAPER](https://www.reaper.fm/). State-of-the-art machine learning meets professional audio workflow.
 
-![ReaBeat 2.0](docs/screens/ReaBeat-2.0.png)
+![ReaBeat 2.0](images/ReaBeat-2.0.png)
 
 ## Why ReaBeat?
 

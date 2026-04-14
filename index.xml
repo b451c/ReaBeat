@@ -23,7 +23,7 @@ State-of-the-art beat detection powered by beat-this (CPJKU, ISMIR 2024).\line
 \b Note:\b0  On first detection, ReaBeat downloads the neural network model to ~/.reabeat/models/. This happens once.\line
 }]]></description>
         <link rel="website">https://github.com/b451c/ReaBeat</link>
-        <link rel="screenshot">https://raw.githubusercontent.com/b451c/ReaBeat/main/docs/screens/ReaBeat-2.0.png</link>
+        <link rel="screenshot">https://raw.githubusercontent.com/b451c/ReaBeat/main/images/ReaBeat-2.0.png</link>
         <link rel="donation">https://ko-fi.com/b4s1c</link>
         <link rel="donation">https://buymeacoffee.com/b4s1c</link>
       </metadata>
