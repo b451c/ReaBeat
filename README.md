@@ -1,215 +1,172 @@
 # ReaBeat
 
-**Neural beat detection and tempo mapping for REAPER.**
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Latest Release](https://img.shields.io/github/v/release/b451c/ReaBeat)](https://github.com/b451c/ReaBeat/releases/latest)
+[![macOS](https://img.shields.io/badge/macOS-arm64%20%7C%20Intel-blue)]()
+[![Windows](https://img.shields.io/badge/Windows-x64-blue)]()
+[![Linux](https://img.shields.io/badge/Linux-x86__64-blue)]()
 
-![ReaBeat in action](screens/ReaBeat_in_action.gif)
+Neural beat detection and tempo mapping for [REAPER](https://www.reaper.fm/). State-of-the-art machine learning meets professional audio workflow.
 
-ReaBeat detects beats, downbeats, tempo, and time signature in any audio using [beat-this](https://github.com/CPJKU/beat_this) (CPJKU, ISMIR 2024), then writes results to REAPER as tempo markers, stretch markers, or adjusts playrate to match your session tempo.
+![ReaBeat 2.0](docs/screens/ReaBeat-2.0.png)
 
-[![ReaBeat demo](https://img.youtube.com/vi/sDLToLtF4C8/0.jpg)](https://youtu.be/sDLToLtF4C8)
+## Why ReaBeat?
 
-![ReaBeat UI](screens/ReaBeat.png)
+REAPER has no built-in beat detection. ReaBeat adds it as a native extension: one file in UserPlugins, zero dependencies. It uses [beat-this](https://github.com/CPJKU/beat_this) (CPJKU, ISMIR 2024) - the neural network with the best published F1 scores for beat and downbeat tracking.
 
-## What It Does
+**No Python. No server. No installer. Drop one file, detect beats.**
 
-- **Detect beats** - state-of-the-art neural beat tracking, ~2-3 seconds per song
-- **Match tempo** - one click to adjust playrate to project BPM or custom target (pitch preserved, auto-aligned to bar)
-- **Insert tempo map** - sync REAPER's grid to audio without modifying it (constant, per-bar, or per-beat markers)
-- **Insert stretch markers** - at every beat or every downbeat, with quality mode selection (Balanced/Transient/Tonal), optional quantize to REAPER's project grid
-- **Editable BPM** - override detected tempo when you know better
-- **Neural downbeats** - accurate bar boundary detection using dedicated model head
-- **Multi-item cache** - switch between items without losing detection results
-- **GPU acceleration** - NVIDIA CUDA auto-detected on install, Apple Silicon MPS supported
-- **Cross-platform** - macOS, Windows, Linux
+## Features
 
-## Use Cases
+### Detection
+- **Neural beat detection** - beat-this model (ISMIR 2024, state-of-the-art accuracy)
+- **Automatic downbeat detection** - neural downbeats, not naive every-4th-beat
+- **Time signature detection** - from downbeat spacing (2/4 through 7/4)
+- **BPM from filename** - parses "120bpm" patterns, shows hint if different from detected
+- **Per-item cache** - switch items without re-detecting, shows "(cached)"
 
-- **Match a song to your session** — detect BPM, one click to match project tempo
-- **Sync grid to a live recording** — insert tempo map so REAPER's grid follows the audio
-- **Sync two tracks** — match both to the same BPM with auto-alignment
-- **Quantize timing** — insert stretch markers snapped to REAPER's grid
-- **Prep for editing** — know the BPM and bar structure before you start cutting
+### Three Action Modes
+- **Match Tempo** - adjust playrate to target BPM (pitch preserved). Match to project tempo or to another detected item for multi-track sync.
+- **Insert Tempo Map** - sync REAPER's grid to audio. Constant, variable-bars, or variable-beats.
+- **Insert Stretch Markers** - quantize audio to grid with four modes:
+  - **Straight** - mathematical grid from detected BPM (default, best for modern music)
+  - **Bars** - downbeat subdivision with variable bar lengths (live recordings)
+  - **Project grid** - snap to REAPER's project grid (multi-track sync)
+  - **Strength** slider (0-100%) - partial quantization, industry standard
 
----
+### Interactive Waveform Editor
+- **Beat editing** - drag, add (double-click), delete (right-click), toggle downbeat
+- **Marker editing** - after Apply, edit individual stretch markers directly in REAPER
+- **Gap highlighting** - red tint over missing-beat regions with suggestion lines
+- **Seek** - click waveform to set REAPER cursor (accounts for stretch markers)
+- **Zoom/scroll** - mouse wheel, shift+scroll, trackpad swipe
+- **Playhead tracking** - auto-follow during playback
+
+### Multi-Track Sync
+- Select reference item from "Match to:" dropdown
+- One click: tempo map + playrate + downbeat alignment + stretch markers on both tracks
+- Single Ctrl+Z undoes the entire operation
+
+### Quality
+- **Onset refinement** - snaps each beat to nearest audio transient (+/-30ms, sample-level precision)
+- **Beat interpolation** - fills gaps in quiet sections using sub-threshold model hints
+- **Consistency pass** - removes isolated false-positive beats
+- **Octave correction** - [/2] [x2] buttons, 78-185 BPM range
+- **Editable BPM** - click to override detected tempo
+
+## Keyboard Shortcuts
+
+| Action | Shortcut |
+|--------|----------|
+| Play/Stop | Space |
+| Apply action | Enter |
+| Next gap | N |
+| Undo | Cmd+Z / Ctrl+Z |
+| Redo | Cmd+Shift+Z / Ctrl+Shift+Z |
 
 ## Installation
 
-### Quick Install (macOS / Linux)
+### ReaPack (recommended)
 
-Open Terminal, paste this, press Enter:
-```bash
-curl -sSL https://raw.githubusercontent.com/b451c/ReaBeat/main/install.sh | bash
-```
+1. Install [ReaPack](https://reapack.com/) if you haven't already
+2. Extensions > ReaPack > Import repositories...
+3. Paste: `https://raw.githubusercontent.com/b451c/ReaBeat/main/index.xml`
+4. Extensions > ReaPack > Browse packages > search "ReaBeat"
+5. Right-click > Install
+6. Restart REAPER
 
-### Quick Install (Windows)
+### Manual Install
 
-Open PowerShell, paste this, press Enter:
-```powershell
-irm https://raw.githubusercontent.com/b451c/ReaBeat/main/install.ps1 | iex
-```
+Download the latest binary for your platform from [Releases](https://github.com/b451c/ReaBeat/releases/latest) and place it in REAPER's UserPlugins folder:
 
-### Step-by-Step Install (all platforms)
+| Platform | File | UserPlugins Path |
+|----------|------|------------------|
+| macOS (Apple Silicon) | `reaper_reabeat-arm64.dylib` | `~/Library/Application Support/REAPER/UserPlugins/` |
+| macOS (Intel) | `reaper_reabeat-x86_64.dylib` | `~/Library/Application Support/REAPER/UserPlugins/` |
+| Windows 64-bit | `reaper_reabeat-x64.dll` | `%APPDATA%\REAPER\UserPlugins\` |
+| Linux 64-bit | `reaper_reabeat-x86_64.so` | `~/.config/REAPER/UserPlugins/` |
 
-<details>
-<summary>Click to expand full manual installation guide</summary>
+Restart REAPER after installing.
 
-#### Step 1: Install uv (Python package manager)
+### First Run
 
-**macOS / Linux:**
-```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
-```
+On first detection, ReaBeat downloads the neural network model (~79MB) to `~/.reabeat/models/`. This happens once - subsequent detections use the cached model.
 
-**Windows (PowerShell):**
-```powershell
-irm https://astral.sh/uv/install.ps1 | iex
-```
+## Usage
 
-#### Step 2: Download ReaBeat
-
-**macOS / Linux:**
-```bash
-cd ~/Documents
-git clone https://github.com/b451c/ReaBeat.git
-cd ReaBeat
-```
-
-**Windows (PowerShell):**
-```powershell
-cd $env:USERPROFILE\Documents
-git clone https://github.com/b451c/ReaBeat.git
-cd ReaBeat
-```
-
-> No git? The quick install scripts download a ZIP automatically. For manual install, download: https://github.com/b451c/ReaBeat/archive/refs/heads/main.zip
-
-#### Step 3: Install Python dependencies
-
-```bash
-uv sync
-```
-
-This downloads Python, PyTorch, beat-this and all dependencies (~800MB, one-time).
-
-Verify it works:
-```bash
-uv run python -m reabeat check
-```
-You should see: `OK: beat-this ready`
-
-#### Step 4: Install REAPER dependencies
-
-Open REAPER, then:
-
-1. **Extensions > ReaPack > Import repositories**
-2. Paste this URL, click OK:
-   ```
-   https://github.com/mavriq-dev/public-reascripts/raw/master/index.xml
-   ```
-3. **Extensions > ReaPack > Browse packages**
-4. Search and install these two:
-   - **ReaImGui** (required — the UI framework)
-   - **mavriq-lua-sockets** (required — backend communication)
-5. Restart REAPER after installing both
-
-Recommended: also install [SWS Extension](https://www.sws-extension.org/) (enables URL opening from Support menu).
-
-#### Step 5: Add ReaBeat script to REAPER
-
-1. **Actions > Show action list**
-2. Click **New action... > Load ReaScript...**
-3. Navigate to the `reabeat.lua` file:
-   - **macOS / Linux:** `~/Documents/ReaBeat/scripts/reaper/reabeat.lua`
-   - **Windows:** `Documents\ReaBeat\scripts\reaper\reabeat.lua`
-   - If you used the auto-installer, scripts are already in REAPER's Scripts folder:
-     - **macOS:** `~/Library/Application Support/REAPER/Scripts/ReaBeat/reabeat.lua`
-     - **Windows:** `%APPDATA%\REAPER\Scripts\ReaBeat\reabeat.lua`
-     - **Linux:** `~/.config/REAPER/Scripts/ReaBeat/reabeat.lua`
-   - **REAPER Portable / custom location:** copy scripts manually, then load from there:
-     ```
-     copy scripts\reaper\*.lua "X:\YourPortableREAPER\Scripts\ReaBeat\"
-     ```
-4. Click **OK**
-5. (Optional) Select the new action and click **Add shortcut...** to assign a key
-
-#### Step 6: Run
-
-1. Select an audio item on your REAPER timeline
-2. Run ReaBeat from the Actions menu (or press your shortcut)
+1. Select a media item in REAPER
+2. Extensions > ReaBeat (or assign to toolbar/shortcut)
 3. Click **Detect Beats**
-4. (Optional) Click detected BPM to edit if needed
-5. Choose your action:
-   - **Match Tempo** - adjust playrate to project BPM or custom target (auto-aligns to bar)
-   - **Insert Tempo Map** - sync REAPER's grid to audio (constant, per-bar, or per-beat)
-   - **Insert Stretch Markers** - every beat or downbeats only, optionally quantized to REAPER's grid
-6. Click **Apply** (Ctrl+Z to undo)
+4. Review beats on the waveform - edit if needed (drag, double-click, right-click)
+5. Choose action mode: Match Tempo, Tempo Map, or Stretch Markers
+6. Adjust settings (quantize mode, strength, quality)
+7. Click **Apply**
+8. In marker edit mode: fine-tune individual stretch markers directly
 
-The Python backend launches automatically on first use and shuts down after 5 minutes of inactivity.
+## Building from Source
 
-</details>
-
----
-
-## Updating
-
-Re-run the same install command — it detects the existing installation and updates it:
-
-**macOS / Linux:**
 ```bash
-curl -sSL https://raw.githubusercontent.com/b451c/ReaBeat/main/install.sh | bash
+git clone https://github.com/b451c/ReaBeat.git
+cd ReaBeat
+git submodule update --init    # JUCE, WDL, reaper-sdk
 ```
 
-**Windows (PowerShell):**
-```powershell
-irm https://raw.githubusercontent.com/b451c/ReaBeat/main/install.ps1 | iex
+Download [ONNX Runtime](https://github.com/microsoft/onnxruntime/releases) to `vendor/onnxruntime/` (headers in `include/`, library in `lib/`).
+
+```bash
+mkdir build && cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release
+cmake --build .
 ```
 
-Then restart ReaBeat in REAPER (close and reopen the script window).
-
----
-
-## Troubleshooting
-
-| Problem | Solution |
-|---------|----------|
-| "Starting..." hangs | Run `uv run python -m reabeat check` in terminal to verify backend |
-| "Offline" status | Kill old server: `kill $(lsof -ti:9877)` (macOS/Linux) or restart REAPER |
-| "beat-this not installed" | Run `uv sync` in the ReaBeat directory |
-| ReaImGui error | Install via ReaPack: Extensions > ReaPack > Browse > "ReaImGui" |
-| Socket error | Install via ReaPack: Extensions > ReaPack > Browse > "mavriq-lua-sockets" |
-| Wrong BPM detected | Click the BPM value to edit manually. If tempo is doubled/halved, type the correct value |
-
-Server log location:
-- **macOS / Linux:** `/tmp/reabeat_server.log`
-- **Windows:** `%TEMP%\reabeat_server.log`
-
----
+Copy the built binary to REAPER's UserPlugins folder and restart REAPER.
 
 ## Architecture
 
 ```
-REAPER (Lua UI)  <--TCP:9877-->  Python Backend (auto-launched)
-scripts/reaper/                   src/reabeat/
+reaper_reabeat.dylib / .dll / .so
+    |
+    +-- ReaperPluginEntry()       REAPER extension entry point
+    +-- JUCE UI                   Window, controls, waveform editor
+    +-- MelSpectrogram            PocketFFT, Slaney mel, matching torchaudio
+    +-- ONNX Inference            Chunked, 50fps, beat-this model
+    +-- Postprocessing            Peak detection, interpolation, onset refinement
+    +-- REAPER API                Direct calls (no TCP, no Lua wrapper)
 ```
 
-All processing is **local** — no cloud, no data sent anywhere.
+| Module | Purpose |
+|--------|---------|
+| `BeatDetector` | High-level detection orchestration |
+| `MelSpectrogram` | FFT + mel filterbank (PocketFFT) |
+| `InferenceProcessor` | ONNX chunked inference with overlap |
+| `Postprocessor` | Peak detection + deduplication |
+| `TempoEstimator` | Phase-aware BPM (circular mean + regression) |
+| `BeatInterpolator` | Fill missing beats in quiet sections |
+| `OnsetRefinement` | Snap to audio transients (+/-30ms) |
+| `ReaperActions` | All REAPER API operations (undo blocks) |
+| `MainComponent` | Full UI with waveform editor |
+| `ModelManager` | Model download and caching |
 
----
+## Previous Version (v1.3.1)
 
-## Support Development
+The Lua/Python version is preserved on the [`v1-lua` branch](https://github.com/b451c/ReaBeat/tree/v1-lua) and at the [`v1.3.1` tag](https://github.com/b451c/ReaBeat/releases/tag/v1.3.1). It requires Python + uv + beat-this. See the [v1 README](https://github.com/b451c/ReaBeat/blob/v1-lua/README.md) for installation.
 
-ReaBeat is free and open source (MIT license).
+## Support
 
-If it saves you time, consider supporting:
+If ReaBeat saves you time, consider supporting development:
 
-- [Ko-fi](https://ko-fi.com/quickmd)
-- [Buy Me a Coffee](https://buymeacoffee.com/bsroczynskh)
-- [PayPal](https://www.paypal.com/paypalme/b451c)
-
-Or: star this repo, report bugs, suggest features.
-
----
+- [Ko-fi](https://ko-fi.com/b4s1c)
+- [Buy Me a Coffee](https://buymeacoffee.com/b4s1c)
+- [PayPal](https://paypal.me/bartoszsroczynski)
 
 ## License
 
-[MIT](LICENSE) — use it however you want.
+[MIT](LICENSE) - ReaBeat is free and open source.
+
+Uses [JUCE](https://juce.com/) (AGPL), [ONNX Runtime](https://onnxruntime.ai/) (MIT), [PocketFFT](https://gitlab.mpcdf.mpg.de/mtr/pocketfft) (BSD-3), [beat-this](https://github.com/CPJKU/beat_this) model (CC BY-NC-SA 4.0).
+
+## Links
+
+- [REAPER Forum Thread](https://forum.cockos.com/showthread.php?t=308240)
+- [GitHub Repository](https://github.com/b451c/ReaBeat)
+- [beat-this Paper (ISMIR 2024)](https://github.com/CPJKU/beat_this)

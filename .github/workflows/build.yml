@@ -1,0 +1,106 @@
+name: Build
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: macos-14
+            platform: macOS-arm64
+            artifact: reaper_reabeat-arm64.dylib
+            cmake_flags: -DCMAKE_OSX_ARCHITECTURES=arm64
+          # Future platforms:
+          # - os: macos-13
+          #   platform: macOS-x86_64
+          #   artifact: reaper_reabeat-x86_64.dylib
+          #   cmake_flags: -DCMAKE_OSX_ARCHITECTURES=x86_64
+          # - os: windows-latest
+          #   platform: Windows-x64
+          #   artifact: reaper_reabeat-x64.dll
+          #   cmake_flags: ""
+          # - os: ubuntu-latest
+          #   platform: Linux-x86_64
+          #   artifact: reaper_reabeat-x86_64.so
+          #   cmake_flags: ""
+
+    runs-on: ${{ matrix.os }}
+    name: ${{ matrix.platform }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Download ONNX Runtime (macOS arm64)
+        if: matrix.platform == 'macOS-arm64'
+        run: |
+          mkdir -p vendor/onnxruntime
+          curl -L https://github.com/microsoft/onnxruntime/releases/download/v1.21.1/onnxruntime-osx-arm64-1.21.1.tgz | tar xz --strip-components=1 -C vendor/onnxruntime
+
+      - name: Configure
+        run: |
+          mkdir build
+          cd build
+          cmake .. -DCMAKE_BUILD_TYPE=Release ${{ matrix.cmake_flags }}
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: build/${{ matrix.artifact }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/download-artifact@v4
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            **/*.dylib
+            **/*.dll
+            **/*.so
+          body: |
+            ## ReaBeat ${{ github.ref_name }}
+
+            Neural beat detection and tempo mapping for REAPER.
+
+            ### Platforms
+
+            | Platform | File | Status |
+            |----------|------|--------|
+            | macOS (Apple Silicon) | `reaper_reabeat-arm64.dylib` | Available |
+            | macOS (Intel) | `reaper_reabeat-x86_64.dylib` | Planned |
+            | Windows 64-bit | `reaper_reabeat-x64.dll` | Planned |
+            | Linux 64-bit | `reaper_reabeat-x86_64.so` | Planned |
+
+            ### Installation
+
+            1. Download the binary for your platform
+            2. Place it in REAPER's `UserPlugins` folder:
+               - macOS: `~/Library/Application Support/REAPER/UserPlugins/`
+               - Windows: `%APPDATA%\REAPER\UserPlugins\`
+               - Linux: `~/.config/REAPER/UserPlugins/`
+            3. Restart REAPER
+            4. Extensions > ReaBeat
+
+            On first detection, ReaBeat downloads the neural network model (~79MB).
+
+            See [CHANGELOG](https://github.com/b451c/ReaBeat/blob/main/CHANGELOG.md) for details.
+
+            ---
+
+            [Ko-fi](https://ko-fi.com/b4s1c) | [Buy Me a Coffee](https://buymeacoffee.com/b4s1c) | [PayPal](https://paypal.me/bartoszsroczynski)

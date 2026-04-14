@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<index version="1" name="ReaBeat">
+  <category name="Extensions">
+    <reapack name="ReaBeat" type="extension" desc="Neural beat detection and tempo mapping">
+      <metadata>
+        <description><![CDATA[{\rtf1\ansi\deff0{\fonttbl{\f0 Calibri;}}
+\f0\fs28 ReaBeat - Neural Beat Detection for REAPER\line
+\fs22\line
+State-of-the-art beat detection powered by beat-this (CPJKU, ISMIR 2024).\line
+\line
+\b Features:\b0\line
+\bullet  Neural beat + downbeat detection (best published F1 scores)\line
+\bullet  Three action modes: Match Tempo, Tempo Map, Stretch Markers\line
+\bullet  Interactive waveform editor with beat/marker editing\line
+\bullet  Quantize Strength slider (0-100%) - industry standard\line
+\bullet  Multi-track sync with one click\line
+\bullet  Per-item detection cache\line
+\line
+\b Requirements:\b0\line
+\bullet  REAPER 6.0+\line
+\bullet  Internet connection for first-time model download (~79MB)\line
+\line
+\b Note:\b0  On first detection, ReaBeat downloads the neural network model to ~/.reabeat/models/. This happens once.\line
+}]]></description>
+        <link rel="website">https://github.com/b451c/ReaBeat</link>
+        <link rel="screenshot">https://raw.githubusercontent.com/b451c/ReaBeat/main/docs/screens/ReaBeat-2.0.png</link>
+        <link rel="donation">https://ko-fi.com/b4s1c</link>
+        <link rel="donation">https://buymeacoffee.com/b4s1c</link>
+      </metadata>
+      <version name="2.0.0" author="b451c" time="2026-04-14T00:00:00Z">
+        <changelog><![CDATA[ReaBeat 2.0 - Native C++ rewrite
+
+- Native REAPER extension (no Python, no server, no installer)
+- Interactive waveform editor with beat/marker editing
+- Quantize Strength slider (0-100%)
+- Four quantize modes: Off, Straight, Bars, Project grid
+- Multi-track sync (tempo map + playrate + alignment + stretch markers)
+- Beat interpolation, consistency pass, onset refinement
+- Keyboard shortcuts: Space, Enter, N, Cmd+Z
+- Model auto-download on first use (~79MB)]]></changelog>
+        <source platform="darwin-arm64" file="reaper_reabeat-arm64.dylib">https://github.com/b451c/ReaBeat/releases/download/v2.0.0/reaper_reabeat-arm64.dylib</source>
+        <source platform="darwin-x86_64" file="reaper_reabeat-x86_64.dylib">https://github.com/b451c/ReaBeat/releases/download/v2.0.0/reaper_reabeat-x86_64.dylib</source>
+        <source platform="win64" file="reaper_reabeat-x64.dll">https://github.com/b451c/ReaBeat/releases/download/v2.0.0/reaper_reabeat-x64.dll</source>
+        <source platform="linux-x86_64" file="reaper_reabeat-x86_64.so">https://github.com/b451c/ReaBeat/releases/download/v2.0.0/reaper_reabeat-x86_64.so</source>
+      </version>
+    </reapack>
+  </category>
+</index>
