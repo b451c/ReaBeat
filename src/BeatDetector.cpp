@@ -98,15 +98,6 @@ float BeatDetector::computeConfidence(const std::vector<float>& beats, float tem
     return std::min(1.0f, static_cast<float>(consistent) / static_cast<float>(beats.size() - 1));
 }
 
-// Debug log helper (writes to /tmp/reabeat_debug.log on Linux for diagnostics)
-static void debugLog(const char* msg)
-{
-#if defined(__linux__)
-    FILE* f = fopen("/tmp/reabeat_debug.log", "a");
-    if (f) { fprintf(f, "%s\n", msg); fclose(f); }
-#endif
-    (void)msg;
-}
 
 DetectionResult BeatDetector::detect(const std::vector<float>& audioMono,
                                       int sampleRate,
@@ -115,11 +106,8 @@ DetectionResult BeatDetector::detect(const std::vector<float>& audioMono,
     DetectionResult result;
     auto t0 = std::chrono::steady_clock::now();
 
-    debugLog("detect() called");
-
     if (!modelLoaded_)
     {
-        debugLog("ERROR: model not loaded");
         result.error = "Model not loaded";
         return result;
     }
@@ -128,7 +116,6 @@ DetectionResult BeatDetector::detect(const std::vector<float>& audioMono,
 
     // Validate audio
     result.duration = static_cast<float>(audioMono.size()) / sampleRate;
-    { char buf[128]; snprintf(buf, sizeof(buf), "audio: %zu samples, %d Hz, %.1fs", audioMono.size(), sampleRate, result.duration); debugLog(buf); }
     if (result.duration < 2.0f)
     {
         result.error = "Audio too short (minimum 2 seconds)";
@@ -182,17 +169,13 @@ DetectionResult BeatDetector::detect(const std::vector<float>& audioMono,
     if (progressCb) progressCb("Computing spectrogram...", 0.1f);
 
     // Mel spectrogram
-    debugLog("computing mel spectrogram...");
     MelSpectrogram mel;
     auto spectrogram = mel.compute(audio22k);
     if (spectrogram.empty())
     {
-        debugLog("ERROR: spectrogram empty");
         result.error = "Failed to compute spectrogram";
         return result;
     }
-    { char buf[128]; snprintf(buf, sizeof(buf), "mel: %zu frames x %zu mels", spectrogram.size(), spectrogram[0].size()); debugLog(buf); }
-
     // Sanity check: detect NaN/Inf in spectrogram (corrupted audio or FFT bug)
     if (!spectrogram.empty() && !spectrogram[0].empty())
     {
@@ -208,7 +191,6 @@ DetectionResult BeatDetector::detect(const std::vector<float>& audioMono,
     if (progressCb) progressCb("Running neural network...", 0.2f);
 
     // ONNX inference
-    debugLog("starting ONNX inference...");
     InferenceProcessor inference(*session_);
     try {
     auto [beatLogits, downbeatLogits] = inference.process(spectrogram,
@@ -216,9 +198,6 @@ DetectionResult BeatDetector::detect(const std::vector<float>& audioMono,
             if (progressCb)
                 progressCb("Running neural network...", 0.2f + frac * 0.5f);
         });
-    debugLog("inference OK");
-    { char buf[128]; snprintf(buf, sizeof(buf), "logits: %zu beat, %zu downbeat", beatLogits.size(), downbeatLogits.size()); debugLog(buf); }
-
     // Sanity check: detect NaN/Inf in inference output
     if (!beatLogits.empty() && (std::isnan(beatLogits[0]) || std::isinf(beatLogits[0])))
     {
@@ -307,16 +286,10 @@ DetectionResult BeatDetector::detect(const std::vector<float>& audioMono,
     auto t1 = std::chrono::steady_clock::now();
     result.detectionTime = std::chrono::duration<float>(t1 - t0).count();
 
-    { char buf[128]; snprintf(buf, sizeof(buf), "DONE: %zu beats, %.1f BPM, %.0f%% conf, %.1fs",
-        result.beats.size(), result.tempo, result.confidence * 100, result.detectionTime); debugLog(buf); }
-
     if (progressCb) progressCb("Done", 1.0f);
     } catch (const std::exception& e) {
-        debugLog("EXCEPTION in detect():");
-        debugLog(e.what());
         result.error = std::string("Detection failed: ") + e.what();
     } catch (...) {
-        debugLog("UNKNOWN EXCEPTION in detect()");
         result.error = "Detection failed: unknown error";
     }
 #else

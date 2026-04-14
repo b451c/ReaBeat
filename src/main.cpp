@@ -7,23 +7,48 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "DockableWindow.h"
-#include "PluginWindow.h"
 
 #include <memory>
 
+// --- Windows: pre-load onnxruntime.dll from plugin directory ---
+// Delay-loaded onnxruntime.dll (see CMakeLists.txt /DELAYLOAD flag).
+// Without this, Windows loads System32\onnxruntime.dll (wrong version)
+// because UserPlugins is not in the DLL search path.
+#ifdef _WIN32
+#include <windows.h>
+#include <shlwapi.h>
+#pragma comment(lib, "shlwapi.lib")
+
+static void preloadOnnxRuntime()
+{
+    HMODULE hSelf = nullptr;
+    GetModuleHandleExW(
+        GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+        GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+        (LPCWSTR)&preloadOnnxRuntime, &hSelf);
+
+    wchar_t dllDir[MAX_PATH] = {};
+    GetModuleFileNameW(hSelf, dllDir, MAX_PATH);
+    PathRemoveFileSpecW(dllDir);
+
+    wchar_t ortPath[MAX_PATH] = {};
+    PathCombineW(ortPath, dllDir, L"onnxruntime.dll");
+
+    // Pre-load from UserPlugins directory so delay-load resolves here
+    LoadLibraryW(ortPath);
+}
+#endif
+
 // --- Globals ---
 
-// macOS/Windows: dockable window (SWELL/Win32 dialog with embedded JUCE component)
-// Linux: standalone JUCE window (SWELL HWND is not X11 Window ID)
-#if defined(__linux__) || defined(__FreeBSD__)
-static std::unique_ptr<PluginWindow> g_pluginWindow;
-#else
 static std::unique_ptr<DockableWindow> g_window;
-#endif
 static int g_cmdToggle = 0;
 static bool g_juceInitialised = false;
 
 // --- JUCE message pump ---
+// Pumps JUCE's internal message queue from REAPER's timer.
+// Needed for juce::MessageManager::callAsync, juce::Timer, repaint, etc.
+// Lightweight no-op when JUCE is not initialised.
 
 static void juceMessagePump()
 {
@@ -41,32 +66,14 @@ static bool onAction(int command, int)
     if (!g_juceInitialised)
     {
         juce::initialiseJuce_GUI();
-        juce::MessageManager::getInstance()->setCurrentThreadAsMessageThread();
         g_juceInitialised = true;
     }
 
-#if defined(__linux__) || defined(__FreeBSD__)
-    if (!g_pluginWindow)
-    {
-        auto* content = new MainComponent();
-        g_pluginWindow = std::make_unique<PluginWindow>("ReaBeat", content);
-#ifdef _WIN32
-        // Windows: set REAPER main HWND as owner (ReaWwise pattern)
-        // Ensures correct z-order and cleanup on REAPER exit
-        g_pluginWindow->addToDesktop(g_pluginWindow->getDesktopWindowStyleFlags(),
-                                      (void*)GetMainHwnd());
-#endif
-        g_pluginWindow->setVisible(true);
-        return true;
-    }
-    g_pluginWindow->setVisible(!g_pluginWindow->isVisible());
-#else
     if (!g_window)
     {
         g_window = std::make_unique<DockableWindow>();
         g_window->create();
 
-        // Wire dock toggle callbacks
         if (auto* content = g_window->getContent())
         {
             content->onToggleDock = []() { if (g_window) g_window->toggleDock(); };
@@ -75,7 +82,6 @@ static bool onAction(int command, int)
         return true;
     }
     g_window->toggleVisibility();
-#endif
 
     return true;
 }
@@ -86,13 +92,8 @@ static int toggleActionState(int command)
 {
     if (command == g_cmdToggle)
     {
-#if defined(__linux__) || defined(__FreeBSD__)
-        if (g_pluginWindow && g_pluginWindow->isVisible())
-            return 1;
-#else
         if (g_window && g_window->isVisible())
             return 1;
-#endif
         return 0;
     }
     return -1;
@@ -102,11 +103,7 @@ static int toggleActionState(int command)
 
 static void onExit()
 {
-#if defined(__linux__) || defined(__FreeBSD__)
-    g_pluginWindow.reset();
-#else
     g_window.reset();
-#endif
 
     if (g_juceInitialised)
     {
@@ -138,31 +135,9 @@ REAPER_PLUGIN_DLL_EXPORT int ReaperPluginEntry(
         return 0;
 
 #ifdef _WIN32
-    // Pre-load onnxruntime.dll from our DLL's directory (UserPlugins)
-    // before delay-load resolves it from System32 where v1.17 may exist
-    {
-        wchar_t selfPath[MAX_PATH] = {};
-        HMODULE hSelf = nullptr;
-        GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
-                           GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                           (LPCWSTR)ReaperPluginEntry, &hSelf);
-        if (hSelf && GetModuleFileNameW(hSelf, selfPath, MAX_PATH))
-        {
-            // Remove filename, keep directory
-            for (int i = (int)wcslen(selfPath) - 1; i >= 0; --i)
-            {
-                if (selfPath[i] == L'\\' || selfPath[i] == L'/')
-                {
-                    selfPath[i + 1] = 0;
-                    break;
-                }
-            }
-            wchar_t ortPath[MAX_PATH] = {};
-            wcscpy_s(ortPath, selfPath);
-            wcscat_s(ortPath, L"onnxruntime.dll");
-            LoadLibraryW(ortPath);
-        }
-    }
+    // Pre-load correct onnxruntime.dll from UserPlugins before any ORT call.
+    // Must happen before JUCE init or any code path that touches ORT.
+    preloadOnnxRuntime();
 #endif
 
     // Register timer for JUCE message pump (always running, lightweight when JUCE not init)

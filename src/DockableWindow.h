@@ -1,8 +1,9 @@
 #pragma once
 
-// Dockable window for ReaBeat: SWELL native dialog + embedded JUCE component.
-// REAPER's docker system handles both floating and docked states.
-// User can dock/undock via REAPER's built-in docker UI (right-click tab, drag).
+// Dockable window for ReaBeat: native dialog + embedded JUCE component.
+// Docked: WS_CHILD dialog + DockWindowAddEx (REAPER manages the container)
+// Floating: WS_POPUP dialog + ShowWindow (standalone window with frame)
+// Linux: SWELL_CreateXBridgeWindow bridges SWELL HWND to X11 Window ID for JUCE
 
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "MainComponent.h"
@@ -12,7 +13,6 @@
 
 #ifndef _WIN32
 #include "swell-dlggen.h"
-// SWELL uses GWL_/SetWindowLong, not GWLP_/SetWindowLongPtr (Win64 distinction)
 #ifndef GWLP_USERDATA
 #define GWLP_USERDATA GWL_USERDATA
 #endif
@@ -34,36 +34,16 @@ public:
     {
         if (hwnd_) return;
 
-        content_ = std::make_unique<MainComponent>();
-        content_->setSize(500, 660);
-
-        hwnd_ = createNativeDialog(GetMainHwnd(), dlgProc, (LPARAM)this);
-        if (!hwnd_) return;
-
-        // Embed JUCE component as child of SWELL view
-        content_->addToDesktop(0, (void*)hwnd_);
-        content_->setVisible(true);
-        onResize();
-
-        // Restore dock state: if previously docked, re-dock; otherwise float
-        bool shouldDock = false;
+        // Check saved dock state
+        isDocked_ = false;
         if (GetExtState)
         {
             const char* docked = GetExtState("ReaBeat", "docked");
             if (docked && docked[0] == '1')
-                shouldDock = true;
+                isDocked_ = true;
         }
 
-        if (shouldDock && DockWindowAddEx)
-        {
-            DockWindowAddEx(hwnd_, "ReaBeat", "ReaBeat_dock", true);
-            isDocked_ = true;
-        }
-        else
-        {
-            ShowWindow(hwnd_, SW_SHOW);
-            isDocked_ = false;
-        }
+        createWindow();
     }
 
     void destroy()
@@ -73,8 +53,13 @@ public:
             content_->removeFromDesktop();
             content_.reset();
         }
+#if defined(__linux__) || defined(__FreeBSD__)
+        xbridgeHwnd_ = nullptr;
+#endif
         if (hwnd_)
         {
+            if (isDocked_ && DockWindowRemove)
+                DockWindowRemove(hwnd_);
             DestroyWindow(hwnd_);
             hwnd_ = nullptr;
         }
@@ -97,49 +82,34 @@ public:
             ShowWindow(hwnd_, SW_SHOW);
             if (isDocked_ && DockWindowActivate)
                 DockWindowActivate(hwnd_);
+            resizeJuceToFit();
         }
     }
 
     void toggleDock()
     {
         if (!hwnd_ || !content_) return;
-        bool wasDocked = isDocked_;
 
-        // 1. Detach JUCE component first (peer becomes invalid after reparent)
+        // Tear down current window
         content_->removeFromDesktop();
-
-        // 2. Remove from docker BEFORE destroying (REAPER holds reference)
-        if (wasDocked && DockWindowRemove)
+        if (isDocked_ && DockWindowRemove)
             DockWindowRemove(hwnd_);
-
-        // 3. Destroy old native window
+#if defined(__linux__) || defined(__FreeBSD__)
+        xbridgeHwnd_ = nullptr;
+#endif
         DestroyWindow(hwnd_);
         hwnd_ = nullptr;
 
-        // Toggle state
-        isDocked_ = !wasDocked;
+        // Toggle
+        isDocked_ = !isDocked_;
         if (SetExtState)
             SetExtState("ReaBeat", "docked", isDocked_ ? "1" : "0", true);
 
-        // Recreate native window and re-embed JUCE component
-        hwnd_ = createNativeDialog(GetMainHwnd(), dlgProc, (LPARAM)this);
-        if (!hwnd_) return;
-
-        content_->addToDesktop(0, (void*)hwnd_);
-        content_->setVisible(true);
-        onResize();
-
-        if (isDocked_ && DockWindowAddEx)
-            DockWindowAddEx(hwnd_, "ReaBeat", "ReaBeat_dock", true);
-        else
-            ShowWindow(hwnd_, SW_SHOW);
+        // Recreate in new mode
+        createWindow();
     }
 
-    bool isVisible() const
-    {
-        return hwnd_ && IsWindowVisible(hwnd_);
-    }
-
+    bool isVisible() const { return hwnd_ && IsWindowVisible(hwnd_); }
     bool isDocked() const { return isDocked_; }
     MainComponent* getContent() const { return content_.get(); }
 
@@ -148,20 +118,100 @@ private:
     std::unique_ptr<MainComponent> content_;
     bool isDocked_ = false;
 
-    void onResize()
+#if defined(__linux__) || defined(__FreeBSD__)
+    HWND xbridgeHwnd_ = nullptr;
+#endif
+
+    void createWindow()
+    {
+        if (!content_)
+        {
+            content_ = std::make_unique<MainComponent>();
+            content_->setOpaque(true);
+        }
+        content_->setSize(500, 660);
+
+        hwnd_ = createNativeDialog(GetMainHwnd(), dlgProc, (LPARAM)this, isDocked_);
+        if (!hwnd_) return;
+
+        // Set pixel size before embedding
+        SetWindowPos(hwnd_, nullptr, 0, 0, 500, 660,
+                     SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+
+        // Embed JUCE as child
+        embedJuceComponent();
+
+        if (isDocked_)
+        {
+            // Docked: register with REAPER's docker
+            if (DockWindowAddEx)
+                DockWindowAddEx(hwnd_, "ReaBeat", "ReaBeat_dock", true);
+        }
+        else
+        {
+            // Floating: just show the popup window
+            ShowWindow(hwnd_, SW_SHOW);
+        }
+
+        resizeJuceToFit();
+    }
+
+    void embedJuceComponent()
+    {
+#if defined(__linux__) || defined(__FreeBSD__)
+        // Linux: SWELL HWND is not an X11 Window - JUCE needs a real X11 Window ID.
+        // Use SWELL_CreateXBridgeWindow to create a native X11 child window inside
+        // the SWELL dialog, then embed JUCE into that X11 window.
+        if (SWELL_CreateXBridgeWindow)
+        {
+            RECT rc;
+            GetClientRect(hwnd_, &rc);
+            void* xwindow = nullptr;
+            xbridgeHwnd_ = SWELL_CreateXBridgeWindow(hwnd_, &xwindow, &rc);
+            if (xbridgeHwnd_ && xwindow)
+            {
+                content_->addToDesktop(0, xwindow);
+                content_->setVisible(true);
+                return;
+            }
+        }
+        // Fallback: try direct embedding (may not render on Linux)
+        content_->addToDesktop(0, (void*)hwnd_);
+#else
+        // macOS/Windows: SWELL HWND (NSView*/real HWND) works directly as parent
+        content_->addToDesktop(0, (void*)hwnd_);
+#endif
+        content_->setVisible(true);
+    }
+
+    void resizeJuceToFit()
     {
         if (!hwnd_ || !content_) return;
         RECT rc;
         GetClientRect(hwnd_, &rc);
         int w = rc.right - rc.left;
         int h = rc.bottom - rc.top;
-        if (w > 0 && h > 0)
-            content_->setBounds(0, 0, w, h);
+        if (w <= 0 || h <= 0) return;
+
+#if defined(__linux__) || defined(__FreeBSD__)
+        if (xbridgeHwnd_)
+            SetWindowPos(xbridgeHwnd_, NULL, 0, 0, w, h, SWP_NOZORDER | SWP_NOMOVE);
+#endif
+
+#ifdef _WIN32
+        if (auto* peer = content_->getPeer())
+        {
+            HWND juceHwnd = (HWND)peer->getNativeHandle();
+            if (juceHwnd)
+                MoveWindow(juceHwnd, 0, 0, w, h, TRUE);
+        }
+#else
+        content_->setBounds(0, 0, w, h);
+#endif
     }
 
     static INT_PTR CALLBACK dlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
     {
-        (void)wParam;
         auto* self = reinterpret_cast<DockableWindow*>(GetWindowLongPtr(hwnd, GWLP_USERDATA));
 
         if (msg == WM_INITDIALOG)
@@ -176,34 +226,48 @@ private:
         switch (msg)
         {
             case WM_SIZE:
-                self->onResize();
+                self->resizeJuceToFit();
                 return 0;
 
             case WM_CLOSE:
                 ShowWindow(hwnd, SW_HIDE);
+                return 0;
+
+            case WM_DESTROY:
+                SetWindowLongPtr(hwnd, GWLP_USERDATA, 0);
                 return 0;
         }
 
         return 0;
     }
 
-    // --- Platform-specific native dialog creation ---
-
 #ifdef _WIN32
-    static HWND createNativeDialog(HWND parent, DLGPROC proc, LPARAM param)
+    // docked=true:  WS_CHILD | DS_CONTROL (for DockWindowAddEx)
+    // docked=false: WS_POPUP with frame (standalone floating window)
+    static HWND createNativeDialog(HWND parent, DLGPROC proc, LPARAM param, bool docked)
     {
         #pragma pack(push, 4)
         struct { DLGTEMPLATE tmpl; WORD menu; WORD wndClass; WORD title; } dlg = {};
         #pragma pack(pop)
-        dlg.tmpl.style = WS_CHILD | DS_CONTROL;
+
+        if (docked)
+        {
+            dlg.tmpl.style = WS_CHILD | DS_CONTROL;
+        }
+        else
+        {
+            dlg.tmpl.style = WS_POPUP | WS_CAPTION | WS_SIZEBOX | WS_SYSMENU
+                           | DS_MODALFRAME | WS_VISIBLE;
+        }
         dlg.tmpl.cx = 500;
         dlg.tmpl.cy = 660;
-        return CreateDialogIndirectParam(GetModuleHandle(nullptr), &dlg.tmpl, parent, proc, param);
+        return CreateDialogIndirectParam(
+            GetModuleHandle(nullptr), &dlg.tmpl, parent, proc, param);
     }
 #else
     static void noopCreateFunc(HWND, int) {}
 
-    static HWND createNativeDialog(HWND parent, DLGPROC proc, LPARAM param)
+    static HWND createNativeDialog(HWND parent, DLGPROC proc, LPARAM param, bool /*docked*/)
     {
         static SWELL_DialogResourceIndex res = {
             nullptr, "ReaBeat",

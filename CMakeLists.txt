@@ -120,6 +120,7 @@ if(MSVC)
 else()
   target_compile_options(reaper_reabeat PRIVATE
     -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers
+    -fsigned-char  # ARM defaults to unsigned char; WDL/SWELL assumes signed
   )
 endif()
 
@@ -165,7 +166,7 @@ elseif(WIN32)
   # before Windows resolves it from System32 (where v1.17 may exist)
   if(ORT_FOUND)
     target_link_options(reaper_reabeat PRIVATE /DELAYLOAD:onnxruntime.dll)
-    target_link_libraries(reaper_reabeat PRIVATE delayimp)
+    target_link_libraries(reaper_reabeat PRIVATE delayimp shlwapi)
   endif()
 
 elseif(UNIX)
