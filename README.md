@@ -81,14 +81,44 @@ REAPER has no built-in beat detection. ReaBeat adds it as a native extension: on
 
 ### Manual Install
 
-Download the latest binary for your platform from [Releases](https://github.com/b451c/ReaBeat/releases/latest) and place it in REAPER's UserPlugins folder:
+Download **both files** for your platform from [Releases](https://github.com/b451c/ReaBeat/releases/latest) and place them in REAPER's UserPlugins folder. Both files must be in the same folder.
 
-| Platform | File | UserPlugins Path |
-|----------|------|------------------|
-| macOS (Apple Silicon) | `reaper_reabeat-arm64.dylib` | `~/Library/Application Support/REAPER/UserPlugins/` |
-| macOS (Intel) | `reaper_reabeat-x86_64.dylib` | `~/Library/Application Support/REAPER/UserPlugins/` |
-| Windows 64-bit | `reaper_reabeat-x64.dll` | `%APPDATA%\REAPER\UserPlugins\` |
-| Linux 64-bit | `reaper_reabeat-x86_64.so` | `~/.config/REAPER/UserPlugins/` |
+**macOS (Apple Silicon)** — `~/Library/Application Support/REAPER/UserPlugins/`
+
+| Download from Release | Save as |
+|-----------------------|---------|
+| `reaper_reabeat-arm64.dylib` | `reaper_reabeat-arm64.dylib` |
+| `libonnxruntime-macOS-arm64.dylib` | `libonnxruntime.1.24.4.dylib` |
+
+**macOS (Intel)** — `~/Library/Application Support/REAPER/UserPlugins/`
+
+| Download from Release | Save as |
+|-----------------------|---------|
+| `reaper_reabeat-x86_64.dylib` | `reaper_reabeat-x86_64.dylib` |
+| `libonnxruntime-macOS-x86_64.dylib` | `libonnxruntime.1.20.1.dylib` |
+
+**Windows 64-bit** — `%APPDATA%\REAPER\UserPlugins\`
+
+| Download from Release | Save as |
+|-----------------------|---------|
+| `reaper_reabeat-x64.dll` | `reaper_reabeat-x64.dll` |
+| `onnxruntime.dll` | `onnxruntime.dll` |
+
+**Linux x86_64** — `~/.config/REAPER/UserPlugins/`
+
+| Download from Release | Save as |
+|-----------------------|---------|
+| `reaper_reabeat-x86_64.so` | `reaper_reabeat-x86_64.so` |
+| `libonnxruntime.so.1-Linux-x86_64` | `libonnxruntime.so.1` |
+
+**Linux aarch64** — `~/.config/REAPER/UserPlugins/`
+
+| Download from Release | Save as |
+|-----------------------|---------|
+| `reaper_reabeat-aarch64.so` | `reaper_reabeat-aarch64.so` |
+| `libonnxruntime.so.1-Linux-aarch64` | `libonnxruntime.so.1` |
+
+> **Important:** On Linux, the ONNX Runtime library must be renamed — remove the platform suffix so the file is called `libonnxruntime.so.1`. ReaPack does this automatically; manual install requires the rename.
 
 Restart REAPER after installing.
 
