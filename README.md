@@ -229,3 +229,8 @@ Uses [JUCE](https://juce.com/) (AGPL), [ONNX Runtime](https://onnxruntime.ai/) (
 - [REAPER Forum Thread (v1, Lua/Python)](https://forum.cockos.com/showthread.php?t=308240)
 - [GitHub Repository](https://github.com/b451c/ReaBeat)
 - [beat-this Paper (ISMIR 2024)](https://github.com/CPJKU/beat_this)
+
+
+---
+
+Made by [falami.studio](https://falami.studio/lab/reabeat/) — audio production & engineering studio.
