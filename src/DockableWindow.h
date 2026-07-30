@@ -7,6 +7,7 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "MainComponent.h"
+#include <cmath>
 
 #include "reaper_plugin.h"
 #include "reaper_plugin_functions.h"
@@ -113,6 +114,9 @@ public:
     bool isDocked() const { return isDocked_; }
     MainComponent* getContent() const { return content_.get(); }
 
+    // Re-fit the JUCE component after a UI scale change
+    void relayoutContent() { resizeJuceToFit(); }
+
 private:
     HWND hwnd_ = nullptr;
     std::unique_ptr<MainComponent> content_;
@@ -134,8 +138,20 @@ private:
         hwnd_ = createNativeDialog(GetMainHwnd(), dlgProc, (LPARAM)this, isDocked_);
         if (!hwnd_) return;
 
-        // Set pixel size before embedding
-        SetWindowPos(hwnd_, nullptr, 0, 0, 500, 660,
+        // Set pixel size before embedding. On Windows SetWindowPos sets the
+        // OUTER rect, so for the framed floating window grow it until the
+        // CLIENT area matches the designed 500x660.
+        int winW = 500, winH = 660;
+#ifdef _WIN32
+        if (!isDocked_)
+        {
+            RECT wr = {0, 0, 500, 660};
+            AdjustWindowRect(&wr, static_cast<DWORD>(GetWindowLongPtr(hwnd_, GWL_STYLE)), FALSE);
+            winW = wr.right - wr.left;
+            winH = wr.bottom - wr.top;
+        }
+#endif
+        SetWindowPos(hwnd_, nullptr, 0, 0, winW, winH,
                      SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
 
         // Embed JUCE as child
@@ -196,6 +212,13 @@ private:
         int h = rc.bottom - rc.top;
         if (w <= 0 || h <= 0) return;
 
+        // setBounds takes LOGICAL coordinates - with a UI-scale transform
+        // active, logical size = physical client size / scale
+        float scale = content_->getUiScale();
+        if (scale <= 0) scale = 1.0f;
+        int lw = static_cast<int>(std::round(w / scale));
+        int lh = static_cast<int>(std::round(h / scale));
+
 #if defined(__linux__) || defined(__FreeBSD__)
         if (xbridgeHwnd_)
             SetWindowPos(xbridgeHwnd_, NULL, 0, 0, w, h, SWP_NOZORDER | SWP_NOMOVE);
@@ -208,8 +231,9 @@ private:
             if (juceHwnd)
                 MoveWindow(juceHwnd, 0, 0, w, h, TRUE);
         }
+        content_->setSize(lw, lh);
 #else
-        content_->setBounds(0, 0, w, h);
+        content_->setBounds(0, 0, lw, lh);
 #endif
     }
 
@@ -237,6 +261,11 @@ private:
                 return 0;
 
             case WM_DESTROY:
+                // The docker can destroy the dialog without going through
+                // destroy() - a stale hwnd_ would later be handed to
+                // ShowWindow/DockWindowRemove/DestroyWindow (and the HWND
+                // value can be reused by an unrelated window)
+                self->hwnd_ = nullptr;
                 SetWindowLongPtr(hwnd, GWLP_USERDATA, 0);
                 return 0;
         }

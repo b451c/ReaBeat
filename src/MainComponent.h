@@ -18,6 +18,13 @@ public:
     // Callback: toggle dock/undock (set by DockableWindow)
     std::function<void()> onToggleDock;
     std::function<bool()> onIsDocked;
+    // Callback: UI scale changed - host window must re-fit the component
+    std::function<void()> onUiScaleChanged;
+
+    // UI scale (1.0-2.0): rendered via setTransform, so all fonts, layout
+    // and mouse coordinates scale together. Persisted in REAPER ExtState.
+    float getUiScale() const { return uiScale_; }
+    void setUiScale(float scale);
 
     void paint(juce::Graphics& g) override;
     void resized() override;
@@ -54,7 +61,7 @@ private:
     juce::TextButton bpmDoubleBtn{"x2"};
     juce::Label bpmOriginalLabel;   // "(was X)" after editing
     juce::TextButton setSessionTempoBtn{"Set session"};
-    juce::Label timeSigLabel;
+    juce::ComboBox timeSigCombo;    // Auto / 2/4 / 3/4 / 4/4 / 6/8 / 9/8 / 12/8
     juce::Label beatCountLabel;
     juce::Label confidenceLabel;
 
@@ -110,6 +117,13 @@ private:
     bool detected_ = false;
     DetectionResult detection_;
     float originalTempo_ = 0;
+    float uiScale_ = 1.0f;
+
+    // Auto-detected meter snapshot so "Auto" in the time-sig dropdown can
+    // restore the neural downbeats after a manual override
+    std::vector<float> autoDownbeats_;
+    int autoTimeSigNum_ = 4;
+    int autoTimeSigDenom_ = 4;
 
     // Beat flash indicator
     bool beatFlashing_ = false;
@@ -127,6 +141,7 @@ private:
         float tempo;
         float confidence;
         double firstDownbeatTimeline;  // where first downbeat plays on timeline
+        int timeSigComboId = 1;        // 1 = Auto, else manual override
     };
     std::unordered_map<std::string, CachedItemInfo> cacheInfo_;
     std::vector<std::string> matchRefGuids_;
@@ -146,9 +161,16 @@ private:
 
     void updateSelectedItem();
     void startDetection();
-    void onDetectionComplete(const DetectionResult& result);
+    // forGuid/forName identify the item the detection was STARTED for -
+    // the user may have selected a different item while it ran
+    void onDetectionComplete(const DetectionResult& result,
+                             const std::string& forGuid,
+                             const std::string& forName);
     void applyAction();
     void updateUI();
+    // Apply a time-sig dropdown selection: override meter + recompute
+    // downbeats (or restore neural ones for Auto)
+    void applyTimeSigSelection(int comboId);
     void showResults(bool show);
     void setActionMode(ActionMode mode);
     void setStatus(const juce::String& msg, juce::Colour colour);

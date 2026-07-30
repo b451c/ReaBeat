@@ -86,8 +86,17 @@ InferenceProcessor::runInference(const std::vector<std::vector<float>>& chunk)
 
     float* beatData = outputs[0].GetTensorMutableData<float>();
     float* downbeatData = outputs[1].GetTensorMutableData<float>();
-    auto shape = outputs[0].GetTensorTypeAndShapeInfo().GetShape();
-    size_t outputSize = shape[0] * shape[1];
+
+    // Validate each output's own shape - sizing the downbeat copy by the
+    // beat tensor would read out of bounds if a mismatched/corrupt model
+    // returns differently-shaped outputs
+    auto beatShape = outputs[0].GetTensorTypeAndShapeInfo().GetShape();
+    auto downShape = outputs[1].GetTensorTypeAndShapeInfo().GetShape();
+    if (beatShape.size() < 2 || downShape.size() < 2
+        || beatShape[1] != downShape[1] || beatShape[1] < 1)
+        throw std::runtime_error("Model output shape mismatch - the model file may be corrupt or incompatible");
+
+    size_t outputSize = static_cast<size_t>(beatShape[0] * beatShape[1]);
 
     return {
         std::vector<float>(beatData, beatData + outputSize),

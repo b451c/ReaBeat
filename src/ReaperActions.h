@@ -27,13 +27,17 @@ public:
 
     // Insert tempo map markers.
     // mode: "constant", "variable_bars", "variable_beats"
+    // tempo must be in QUARTER-NOTE BPM (REAPER's unit) - for compound
+    // meters the caller scales the detected dotted-quarter BPM by 1.5.
+    // quartersPerMarker: quarter notes between consecutive beatList entries
+    // (fractional for compound meters, e.g. 9/8 bar = 4.5 quarters).
     // Returns count of markers inserted, or 0 if cancelled.
     static int insertTempoMap(
         MediaItem_Take* take,
         MediaItem* item,
         float tempo,
         const std::vector<float>& beatList,
-        int beatsPerMarker,
+        double quartersPerMarker,
         int timeSigNum,
         int timeSigDenom,
         const std::string& mode);

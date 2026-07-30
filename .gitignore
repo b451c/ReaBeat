@@ -33,5 +33,11 @@ drafts/
 *.log
 /tmp/
 
-# Test data (local only)
-tests/
+# Test data (local only) - EXCEPT the ReaProof E2E suite, which ships
+# with the repo (tests/reaproof/ is code + docs, no local data).
+# NOTE: must be tests/* not tests/ - git cannot re-include below an
+# excluded directory.
+tests/*
+!tests/reaproof/
+legacy/v1-lua/tests/
+__pycache__/

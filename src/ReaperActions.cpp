@@ -25,6 +25,11 @@ static double snapToGrid(double timeline)
     TimeMap_GetTimeSigAtTime(nullptr, timeline, &gridTsNum, nullptr, nullptr);
     if (gridTsNum == 0) gridTsNum = 4;
 
+    // Degenerate tempo map (two markers at one position) would divide by 0
+    // below and the NaN would flow into a float->int cast (UB)
+    if (barDur <= 0)
+        return timeline;
+
     double posInBar = timeline - barStart;
     double beatInBar = posInBar / barDur * gridTsNum;
     int nearest = static_cast<int>(std::max(0.0, std::min(static_cast<double>(gridTsNum),
@@ -87,23 +92,44 @@ int ReaperActions::insertStretchMarkers(
     double itemPos = GetMediaItemInfo_Value(item, "D_POSITION");
     double halfBeat = (detectedBpm > 0) ? 60.0 / detectedBpm / 2.0 : 0.25;
 
+    // Coordinate conventions (empirically verified):
+    // - detection beat times are SOURCE-ABSOLUTE (detection reads the source
+    //   file from 0, independent of item trim), and stretch marker pos/srcpos
+    //   are also source coordinates - so srcpos = beat time DIRECTLY, with
+    //   no D_STARTOFFS term. Adding takeOffset here shifts every marker
+    //   D_STARTOFFS seconds past the actual transient on trimmed items.
+    // - timeline <-> pos conversion is the only place takeOffset appears:
+    //   timeline = itemPos + (pos - takeOffset) / playrate
+
     struct Marker { double src; double dst; };
     std::vector<Marker> markers;
+
+    // False-positive filter (Critical Rule 8): beats closer than half the
+    // detected beat interval are duplicates of their predecessor. All modes
+    // (including Bars/Project grid source matching) work from this list.
+    std::vector<float> filteredBeats;
+    filteredBeats.reserve(beatTimes.size());
+    {
+        double minGap = (detectedBpm > 0) ? 60.0 / detectedBpm * 0.5 : 0.0;
+        for (float bt : beatTimes)
+            if (filteredBeats.empty() || (bt - filteredBeats.back()) >= minGap)
+                filteredBeats.push_back(bt);
+    }
 
     // Helper: find nearest detected beat to target position (within halfBeat)
     auto findNearestBeat = [&](double target) -> double
     {
-        auto it = std::lower_bound(beatTimes.begin(), beatTimes.end(),
+        auto it = std::lower_bound(filteredBeats.begin(), filteredBeats.end(),
                                    static_cast<float>(target));
         double nearest = target;
         double bestDist = halfBeat;
 
-        if (it != beatTimes.end())
+        if (it != filteredBeats.end())
         {
             double d = std::abs(static_cast<double>(*it) - target);
             if (d < bestDist) { nearest = *it; bestDist = d; }
         }
-        if (it != beatTimes.begin())
+        if (it != filteredBeats.begin())
         {
             --it;
             double d = std::abs(static_cast<double>(*it) - target);
@@ -113,29 +139,21 @@ int ReaperActions::insertStretchMarkers(
     };
 
     // --- Helper: sequential gap rounding for mathematical grid ---
-    // Filters false-positive beats, assigns each to a grid index via local
-    // gap rounding (no drift accumulation). Returns filtered beats + indices.
-    auto buildGridIndices = [&](double beatInterval)
-        -> std::pair<std::vector<float>, std::vector<int>>
+    // Assigns each filtered beat to a grid index via local gap rounding
+    // (no drift accumulation).
+    auto buildGridIndices = [&](double beatInterval) -> std::vector<int>
     {
-        double minGap = beatInterval * 0.5;
-        std::vector<float> filtered;
-        filtered.reserve(beatTimes.size());
-        for (float bt : beatTimes)
-        {
-            if (filtered.empty() || (bt - filtered.back()) >= minGap)
-                filtered.push_back(bt);
-        }
-
-        std::vector<int> indices(filtered.size());
+        std::vector<int> indices(filteredBeats.size());
+        if (indices.empty())
+            return indices;
         indices[0] = 0;
-        for (size_t i = 1; i < filtered.size(); ++i)
+        for (size_t i = 1; i < filteredBeats.size(); ++i)
         {
-            double gap = static_cast<double>(filtered[i] - filtered[i - 1]);
+            double gap = static_cast<double>(filteredBeats[i] - filteredBeats[i - 1]);
             int steps = std::max(1, static_cast<int>(std::round(gap / beatInterval)));
             indices[i] = indices[i - 1] + steps;
         }
-        return {std::move(filtered), std::move(indices)};
+        return indices;
     };
 
     if (quantizeMode == 1 || detectedBpm <= 0)
@@ -144,7 +162,7 @@ int ReaperActions::insertStretchMarkers(
         markers.reserve(beatTimes.size());
         for (float bt : beatTimes)
         {
-            double pos = static_cast<double>(bt) + takeOffset;
+            double pos = static_cast<double>(bt);
             markers.push_back({pos, pos});
         }
     }
@@ -156,13 +174,13 @@ int ReaperActions::insertStretchMarkers(
         // Uses sequential gap rounding (local, no drift).
 
         double beatInterval = 60.0 / static_cast<double>(detectedBpm);
-        auto [filtered, gridIdx] = buildGridIndices(beatInterval);
-        double firstBeat = static_cast<double>(filtered[0]);
+        auto gridIdx = buildGridIndices(beatInterval);
+        double firstBeat = static_cast<double>(filteredBeats[0]);
 
-        for (size_t i = 0; i < filtered.size(); ++i)
+        for (size_t i = 0; i < filteredBeats.size(); ++i)
         {
-            double src = static_cast<double>(filtered[i]) + takeOffset;
-            double dst = firstBeat + gridIdx[i] * beatInterval + takeOffset;
+            double src = static_cast<double>(filteredBeats[i]);
+            double dst = firstBeat + gridIdx[i] * beatInterval;
             markers.push_back({src, dst});
         }
     }
@@ -183,12 +201,12 @@ int ReaperActions::insertStretchMarkers(
                 double target = barStart + b * barDur / timeSigNum;
                 double nearest = findNearestBeat(target);
 
-                markers.push_back({nearest + takeOffset, target + takeOffset});
+                markers.push_back({nearest, target});
             }
         }
         // Last downbeat
         double last = static_cast<double>(downbeats.back());
-        markers.push_back({last + takeOffset, last + takeOffset});
+        markers.push_back({last, last});
     }
     else if (quantizeMode == 4 && downbeats.size() >= 2 && timeSigNum > 0)
     {
@@ -207,31 +225,32 @@ int ReaperActions::insertStretchMarkers(
                 double target = barStart + b * barDur / timeSigNum;
                 double nearest = findNearestBeat(target);
 
-                // Convert target to timeline and snap to REAPER grid
-                double timeline = itemPos + target / playrate;
+                // Convert target (source time) to timeline, snap to REAPER
+                // grid, convert back to pos space
+                double timeline = itemPos + (target - takeOffset) / playrate;
                 double gridTime = snapToGrid(timeline);
                 double dst = (gridTime - itemPos) * playrate + takeOffset;
 
-                markers.push_back({nearest + takeOffset, dst});
+                markers.push_back({nearest, dst});
             }
         }
         double last = static_cast<double>(downbeats.back());
-        markers.push_back({last + takeOffset, last + takeOffset});
+        markers.push_back({last, last});
     }
     else
     {
         // FALLBACK: modes 3/4 without downbeats -> sequential gap rounding
         double beatInterval = 60.0 / static_cast<double>(detectedBpm);
-        auto [filtered, gridIdx] = buildGridIndices(beatInterval);
-        double firstBeat = static_cast<double>(filtered[0]);
+        auto gridIdx = buildGridIndices(beatInterval);
+        double firstBeat = static_cast<double>(filteredBeats[0]);
 
         if (quantizeMode == 4)
         {
             // Project grid fallback: snap sequential grid to REAPER grid
-            for (size_t i = 0; i < filtered.size(); ++i)
+            for (size_t i = 0; i < filteredBeats.size(); ++i)
             {
-                double src = static_cast<double>(filtered[i]) + takeOffset;
-                double timeline = itemPos + static_cast<double>(filtered[i]) / playrate;
+                double src = static_cast<double>(filteredBeats[i]);
+                double timeline = itemPos + (src - takeOffset) / playrate;
                 double gridTime = snapToGrid(timeline);
                 double dst = (gridTime - itemPos) * playrate + takeOffset;
                 markers.push_back({src, dst});
@@ -240,10 +259,10 @@ int ReaperActions::insertStretchMarkers(
         else
         {
             // Bars fallback: mathematical grid (same as Straight)
-            for (size_t i = 0; i < filtered.size(); ++i)
+            for (size_t i = 0; i < filteredBeats.size(); ++i)
             {
-                double src = static_cast<double>(filtered[i]) + takeOffset;
-                double dst = firstBeat + gridIdx[i] * beatInterval + takeOffset;
+                double src = static_cast<double>(filteredBeats[i]);
+                double dst = firstBeat + gridIdx[i] * beatInterval;
                 markers.push_back({src, dst});
             }
         }
@@ -262,18 +281,28 @@ int ReaperActions::insertStretchMarkers(
     // This happens when findNearestBeat matches the same beat to multiple grid
     // positions (e.g., after user adds a beat near an existing one).
     // Two markers with the same src create a 0.00x ratio - disastrous.
-    for (size_t i = 1; i < markers.size(); ++i)
+    // Reassigning src=dst can create a NEW collision with the next neighbor
+    // (3+ grid slots matched to one beat), so iterate to a fixpoint.
+    for (int pass = 0; pass < 8; ++pass)
     {
-        if (std::abs(markers[i].src - markers[i - 1].src) < 0.005)
+        bool changed = false;
+        for (size_t i = 1; i < markers.size(); ++i)
         {
-            // Two markers want the same source beat - the worse match gets src=dst
-            double distPrev = std::abs(markers[i - 1].src - markers[i - 1].dst);
-            double distCurr = std::abs(markers[i].src - markers[i].dst);
-            if (distCurr > distPrev)
-                markers[i].src = markers[i].dst;
-            else
-                markers[i - 1].src = markers[i - 1].dst;
+            if (std::abs(markers[i].src - markers[i - 1].src) < 0.005)
+            {
+                // Two markers want the same source beat - the worse match gets src=dst
+                double distPrev = std::abs(markers[i - 1].src - markers[i - 1].dst);
+                double distCurr = std::abs(markers[i].src - markers[i].dst);
+                auto& worse = (distCurr > distPrev) ? markers[i] : markers[i - 1];
+                if (worse.src != worse.dst)
+                {
+                    worse.src = worse.dst;
+                    changed = true;
+                }
+            }
         }
+        if (!changed)
+            break;
     }
 
     int count = 0;
@@ -305,7 +334,7 @@ int ReaperActions::insertTempoMap(
     MediaItem* item,
     float tempo,
     const std::vector<float>& beatList,
-    int beatsPerMarker,
+    double quartersPerMarker,
     int timeSigNum,
     int timeSigDenom,
     const std::string& mode)
@@ -330,9 +359,26 @@ int ReaperActions::insertTempoMap(
     char timebase = 0;
     GetSetMediaItemInfo(item, "C_BEATATTACHMODE", &timebase);
 
+    bool constant = !(mode != "constant" && beatList.size() >= 2);
+
+    // Constant mode snaps its single marker to the nearest bar, which can
+    // land slightly BEFORE the item - compute it first so the deletion
+    // range below covers it (otherwise a stale old marker survives there).
+    double constantPos = 0;
+    if (constant)
+    {
+        double firstPos = itemPos + (beatList[0] - takeOffset) / playrate;
+        constantPos = snapToNearestBar(firstPos);
+    }
+
     // Clear existing tempo markers within item time range only.
     // Markers before/after the item are preserved so the rest of the project
     // (e.g. other items, manual tempo edits) is not destroyed.
+    double clearFrom = itemPos - 0.001;
+    double clearTo = itemEnd + 0.001;
+    if (constant)
+        clearFrom = std::min(clearFrom, constantPos - 0.001);
+
     int existing = CountTempoTimeSigMarkers(nullptr);
     for (int i = existing - 1; i >= 0; --i)
     {
@@ -340,13 +386,13 @@ int ReaperActions::insertTempoMap(
         if (!GetTempoTimeSigMarker(nullptr, i, &timepos,
                 nullptr, nullptr, nullptr, nullptr, nullptr, nullptr))
             continue;
-        if (timepos >= itemPos - 0.001 && timepos <= itemEnd + 0.001)
+        if (timepos >= clearFrom && timepos <= clearTo)
             DeleteTempoTimeSigMarker(nullptr, i);
     }
 
     int count = 0;
 
-    if (mode != "constant" && beatList.size() >= 2)
+    if (!constant)
     {
         // Variable tempo: one marker per beat/downbeat position
         for (size_t i = 0; i < beatList.size() - 1; ++i)
@@ -357,7 +403,13 @@ int ReaperActions::insertTempoMap(
 
             if (interval < 0.05) continue;  // skip tiny intervals
 
-            double localBpm = 60.0 * beatsPerMarker / interval;
+            // Detection covers the whole source file, including regions
+            // trimmed away from this item - only touch the range we cleared
+            // (a pre-trim beat would even map to a negative timeline pos)
+            if (pos < clearFrom || pos > clearTo)
+                continue;
+
+            double localBpm = 60.0 * quartersPerMarker / interval;
 
             // Octave correction
             while (localBpm < 78.0) localBpm *= 2.0;
@@ -367,8 +419,13 @@ int ReaperActions::insertTempoMap(
             double ratio = localBpm / effectiveBpm;
             if (ratio > 0.75 && ratio < 1.25)
             {
-                SetTempoTimeSigMarker(nullptr, -1, pos, -1, -1,
-                    localBpm, timeSigNum, timeSigDenom, false);
+                // Time signature only on the first marker; 0/0 = inherit.
+                // Passing a signature on every marker would make every
+                // beat start a new measure.
+                SetTempoTimeSigMarker(nullptr, -1, pos, -1, -1, localBpm,
+                    count == 0 ? timeSigNum : 0,
+                    count == 0 ? timeSigDenom : 0,
+                    false);
                 ++count;
             }
         }
@@ -376,10 +433,7 @@ int ReaperActions::insertTempoMap(
     else
     {
         // Constant tempo: single marker at bar-snapped position
-        double firstPos = itemPos + (beatList[0] - takeOffset) / playrate;
-        double snapTo = snapToNearestBar(firstPos);
-
-        SetTempoTimeSigMarker(nullptr, -1, snapTo, -1, -1,
+        SetTempoTimeSigMarker(nullptr, -1, constantPos, -1, -1,
             effectiveBpm, timeSigNum, timeSigDenom, false);
         count = 1;
     }
@@ -407,33 +461,29 @@ bool ReaperActions::matchTempo(
 
     double rate = targetBpm / detectedBpm;
 
+    // Extreme ratios are rejected without a dialog - a blocking
+    // ShowMessageBox opens BEHIND the always-on-top plugin window and
+    // REAPER appears frozen (Critical Rule 3). Callers pre-check the
+    // ratio and report via the status label.
     if (rate < 0.25 || rate > 4.0)
-    {
-        char msg[256];
-        snprintf(msg, sizeof(msg),
-            "Tempo ratio too extreme: %.1f BPM -> %.1f BPM (%.1fx)\n\n"
-            "Supported range: 0.25x to 4.0x",
-            detectedBpm, targetBpm, rate);
-        ShowMessageBox(msg, "ReaBeat - Match Tempo", 0);
         return false;
-    }
 
     Undo_BeginBlock2(nullptr);
     RefreshGuard refreshGuard;
+
+    double oldRate = GetMediaItemTakeInfo_Value(take, "D_PLAYRATE");
+    double oldLen = GetMediaItemInfo_Value(item, "D_LENGTH");
 
     // Set playrate and preserve pitch
     SetMediaItemTakeInfo_Value(take, "D_PLAYRATE", rate);
     SetMediaItemTakeInfo_Value(take, "B_PPITCH", 1.0);
 
-    // Adjust item length
-    PCM_source* source = GetMediaItemTake_Source(take);
-    if (source)
+    // Adjust item length so it keeps covering the SAME source content.
+    // (Deriving length from the full source would silently extend a
+    // trimmed item, revealing trimmed-away audio.)
+    if (oldRate > 0)
     {
-        double sourceLen = 0;
-        bool lengthIsQN = false;
-        sourceLen = GetMediaSourceLength(source, &lengthIsQN);
-        double offset = GetMediaItemTakeInfo_Value(take, "D_STARTOFFS");
-        double newLen = (sourceLen - offset) / rate;
+        double newLen = oldLen * oldRate / rate;
         SetMediaItemInfo_Value(item, "D_LENGTH", newLen);
     }
 
@@ -468,8 +518,11 @@ static constexpr double kSrcPosTolerance = 0.005; // 5ms
 
 double ReaperActions::interpolateDst(MediaItem_Take* take, double newSrc)
 {
+    // With exactly one marker the edge-extrapolation path below preserves
+    // its stretch offset - returning newSrc directly would create a ratio
+    // discontinuity on a stretched take.
     int n = GetTakeNumStretchMarkers(take);
-    if (n < 2) return newSrc;
+    if (n < 1) return newSrc;
 
     double prevSrc = -1e9, prevDst = -1e9;
     double nextSrc = 1e9, nextDst = 1e9;
@@ -503,6 +556,18 @@ int ReaperActions::addOneStretchMarker(MediaItem_Take* take, MediaItem* item,
                                         double src, double dst)
 {
     if (!take || !item) return -1;
+
+    // A marker already at this source position would make the insert a
+    // no-op; bail before opening the undo block so no empty undo point
+    // pollutes the history.
+    int n = GetTakeNumStretchMarkers(take);
+    for (int i = 0; i < n; ++i)
+    {
+        double pos, srcpos;
+        GetTakeStretchMarker(take, i, &pos, &srcpos);
+        if (std::abs(srcpos - src) < kSrcPosTolerance)
+            return -1;
+    }
 
     Undo_BeginBlock2(nullptr);
     RefreshGuard refreshGuard;

@@ -354,7 +354,7 @@ hr{border:none;border-top:1px solid var(--border);margin:48px 0}
 <ul>
   <li><strong>BPM value</strong> &mdash; the detected tempo, clickable to edit manually</li>
   <li><strong>Confidence percentage</strong> &mdash; color-coded: <span class="color-dot dot-green"></span>green above 80%, <span class="color-dot dot-gold"></span>gold between 50-80%, <span class="color-dot dot-red"></span>red below 50%</li>
-  <li><strong>Time signature</strong> &mdash; detected from downbeat spacing (typically 4/4 or 3/4)</li>
+  <li><strong>Time signature dropdown</strong> &mdash; Auto shows the detected meter; pick 2/4, 3/4, 4/4, 6/8, 9/8 or 12/8 to override it and recompute the bars (compound meters are often detected as 4/4). The override is remembered per item.</li>
   <li><strong>Beat count</strong> &mdash; total number of detected beats</li>
   <li><strong>Beat flash indicator</strong> &mdash; gold dot near the BPM that pulses on each beat during playback (larger pulse on downbeats)</li>
 </ul>
@@ -396,9 +396,12 @@ hr{border:none;border-top:1px solid var(--border);margin:48px 0}
   <div class="key"><kbd>Double-click</kbd> beat</div><div class="desc">Toggle downbeat status</div>
   <div class="key"><kbd>Right-click</kbd> beat</div><div class="desc">Delete beat</div>
   <div class="key"><kbd>N</kbd></div><div class="desc">Scroll to next gap in beat grid</div>
+  <div class="key"><kbd>Middle-drag</kbd></div><div class="desc">Pan the waveform view</div>
   <div class="key"><kbd>Cmd</kbd>+<kbd>Z</kbd></div><div class="desc">Undo beat edit</div>
   <div class="key"><kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd></div><div class="desc">Redo beat edit</div>
 </div>
+
+<p>While zoomed, the gold position bar at the bottom edge of the waveform is interactive: click it to jump, drag it to scrub the view. During detection the <strong>Detect Beats</strong> button becomes <strong>Cancel</strong> &mdash; one click stops a running detection. To scale the whole interface, click the <strong>ReaBeat</strong> title and pick UI scale (100&ndash;200%).</p>
 
 <h2 id="gap-highlighting">Gap Highlighting</h2>
 

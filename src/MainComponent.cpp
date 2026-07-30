@@ -68,14 +68,19 @@ static RadioLookAndFeel radioLookAndFeel;
 class MainComponent::DetectionThread : public juce::Thread
 {
 public:
-    DetectionThread(MainComponent& owner, const std::string& filePath)
+    DetectionThread(MainComponent& owner, const std::string& filePath,
+                    const std::string& itemGuid, const std::string& itemName)
         : juce::Thread("ReaBeat Detection"),
           safeOwner_(&owner),
           filePath_(filePath),
+          itemGuid_(itemGuid),
+          itemName_(itemName),
           detector_(owner.beatDetector_) {}
 
     void run() override
     {
+        // shouldCancel makes stopThread() cooperative - without it the
+        // destructor's timeout would killThread() mid Ort::Run
         auto result = detector_.detectFile(filePath_,
             [this](const std::string& msg, float frac)
             {
@@ -88,19 +93,23 @@ public:
                         owner->progressLabel.setText(msg, juce::dontSendNotification);
                     }
                 });
-            });
+            },
+            [this]() { return threadShouldExit(); });
 
         auto safe = safeOwner_;
-        juce::MessageManager::callAsync([safe, result = std::move(result)]()
+        juce::MessageManager::callAsync(
+            [safe, result = std::move(result), guid = itemGuid_, name = itemName_]()
         {
             if (auto* owner = safe.getComponent())
-                owner->onDetectionComplete(result);
+                owner->onDetectionComplete(result, guid, name);
         });
     }
 
 private:
     juce::Component::SafePointer<MainComponent> safeOwner_;
     std::string filePath_;
+    std::string itemGuid_;
+    std::string itemName_;
     BeatDetector& detector_;
 };
 
@@ -128,7 +137,8 @@ public:
                     owner->setStatus(msg, Colors::warning);
                 }
             });
-        });
+        },
+        [this]() { return threadShouldExit(); });
 
         auto safe = safeOwner_;
         juce::MessageManager::callAsync([safe, ok]()
@@ -212,14 +222,15 @@ MainComponent::MainComponent()
 
     waveformView.onApplyRequested = [this]() { applyAction(); };
 
-    // Marker edit mode callbacks: direct REAPER stretch marker manipulation
+    // Marker edit mode callbacks: direct REAPER stretch marker manipulation.
+    // Detection beat times ARE source positions (detection reads the source
+    // file from 0), so srcTime maps to REAPER srcpos with no takeOffset term.
     waveformView.onMarkerAdd = [this](float srcTime)
     {
         if (!currentItem_.take || !currentItem_.item) return;
         auto* take = static_cast<MediaItem_Take*>(currentItem_.take);
         auto* item = static_cast<MediaItem*>(currentItem_.item);
-        double takeOffset = GetMediaItemTakeInfo_Value(take, "D_STARTOFFS");
-        double src = static_cast<double>(srcTime) + takeOffset;
+        double src = static_cast<double>(srcTime);
         double dst = ReaperActions::interpolateDst(take, src);
         ReaperActions::addOneStretchMarker(take, item, src, dst);
         lastStretchMarkerCount_ = -1;
@@ -231,10 +242,8 @@ MainComponent::MainComponent()
         if (!currentItem_.take || !currentItem_.item) return;
         auto* take = static_cast<MediaItem_Take*>(currentItem_.take);
         auto* item = static_cast<MediaItem*>(currentItem_.item);
-        double takeOffset = GetMediaItemTakeInfo_Value(take, "D_STARTOFFS");
-        double oldSrcAbs = static_cast<double>(oldSrc) + takeOffset;
-        double newSrcAbs = static_cast<double>(newSrc) + takeOffset;
-        ReaperActions::moveOneStretchMarker(take, item, oldSrcAbs, newSrcAbs);
+        ReaperActions::moveOneStretchMarker(take, item,
+            static_cast<double>(oldSrc), static_cast<double>(newSrc));
         lastStretchMarkerCount_ = -1;
         setStatus("Stretch marker moved", Colors::success);
     };
@@ -244,9 +253,8 @@ MainComponent::MainComponent()
         if (!currentItem_.take || !currentItem_.item) return;
         auto* take = static_cast<MediaItem_Take*>(currentItem_.take);
         auto* item = static_cast<MediaItem*>(currentItem_.item);
-        double takeOffset = GetMediaItemTakeInfo_Value(take, "D_STARTOFFS");
-        double src = static_cast<double>(srcTime) + takeOffset;
-        ReaperActions::deleteOneStretchMarker(take, item, src);
+        ReaperActions::deleteOneStretchMarker(take, item,
+            static_cast<double>(srcTime));
         lastStretchMarkerCount_ = -1;
         setStatus("Stretch marker deleted", Colors::success);
     };
@@ -285,17 +293,19 @@ MainComponent::MainComponent()
     bpmEditor.onTextChange = [this]()
     {
         float edited = bpmEditor.getText().getFloatValue();
-        if (edited > 0 && std::abs(edited - originalTempo_) > 0.05f)
+        bool wasVisible = bpmOriginalLabel.isVisible();
+        bool nowVisible = (edited > 0 && std::abs(edited - originalTempo_) > 0.05f);
+        if (nowVisible)
         {
             char was[32];
             snprintf(was, sizeof(was), "(was %.1f)", originalTempo_);
             bpmOriginalLabel.setText(was, juce::dontSendNotification);
-            bpmOriginalLabel.setVisible(true);
         }
-        else
-        {
-            bpmOriginalLabel.setVisible(false);
-        }
+        bpmOriginalLabel.setVisible(nowVisible);
+        // The layout reserves an extra row for the label - relayout on
+        // visibility change or the label overlaps the Action row
+        if (wasVisible != nowVisible)
+            resized();
     };
     addChildComponent(bpmEditor);
 
@@ -309,9 +319,22 @@ MainComponent::MainComponent()
     setSessionTempoBtn.addListener(this);
     addChildComponent(setSessionTempoBtn);
 
-    timeSigLabel.setFont(juce::FontOptions(13.0f));
-    timeSigLabel.setColour(juce::Label::textColourId, Colors::text);
-    addChildComponent(timeSigLabel);
+    // Time signature: shows the detected meter, allows manual override.
+    // Compound meters (6/8, 9/8, 12/8) are commonly detected as 4/4 - the
+    // override recomputes downbeats from the chosen meter.
+    timeSigCombo.addItem("Auto", 1);
+    timeSigCombo.addItem("2/4", 2);
+    timeSigCombo.addItem("3/4", 3);
+    timeSigCombo.addItem("4/4", 4);
+    timeSigCombo.addItem("6/8", 5);
+    timeSigCombo.addItem("9/8", 6);
+    timeSigCombo.addItem("12/8", 7);
+    timeSigCombo.setSelectedId(1, juce::dontSendNotification);
+    timeSigCombo.setColour(juce::ComboBox::backgroundColourId, Colors::inputBg);
+    timeSigCombo.setColour(juce::ComboBox::textColourId, Colors::text);
+    timeSigCombo.setTooltip("Time signature. Auto = neural detection; pick a meter to recompute bars manually (6/8, 9/8, 12/8 are often misdetected as 4/4)");
+    timeSigCombo.onChange = [this]() { applyTimeSigSelection(timeSigCombo.getSelectedId()); };
+    addChildComponent(timeSigCombo);
 
     beatCountLabel.setFont(juce::FontOptions(11.0f));
     beatCountLabel.setColour(juce::Label::textColourId, Colors::textDim);
@@ -441,9 +464,11 @@ MainComponent::MainComponent()
     quantizeCombo.setTooltip("Off = no stretch | Straight = mathematical grid | Bars = follow downbeats | Project grid = align to REAPER grid (multi-track sync)");
     quantizeCombo.onChange = [this]()
     {
-        bool showStrength = quantizeCombo.getSelectedId() > 1;
-        strengthLabel.setVisible(showStrength && strengthSlider.isVisible());
-        strengthSlider.setVisible(showStrength && quantizeCombo.isVisible());
+        // Visibility derives from the combo state, not from the slider's
+        // pre-update visibility (which lags one change behind)
+        bool showStrength = quantizeCombo.getSelectedId() > 1 && quantizeCombo.isVisible();
+        strengthLabel.setVisible(showStrength);
+        strengthSlider.setVisible(showStrength);
         resized();
     };
     addChildComponent(quantizeCombo);
@@ -503,6 +528,21 @@ MainComponent::MainComponent()
     addAndMakeVisible(tooltipCheckbox);
 
     setSize(460, 660);
+
+    // Restore persisted UI scale (flark / 4K-display request)
+    if (GetExtState)
+    {
+        const char* s = GetExtState("ReaBeat", "uiscale");
+        if (s && s[0])
+        {
+            float f = static_cast<float>(atof(s));
+            if (f >= 1.0f && f <= 2.0f && f != 1.0f)
+            {
+                uiScale_ = f;
+                setTransform(juce::AffineTransform::scale(uiScale_));
+            }
+        }
+    }
 
     loadOrDownloadModel();
     startTimer(200);
@@ -659,6 +699,15 @@ void MainComponent::resized()
     progressBar->setBounds(area.getX(), y, w, 16);
     progressLabel.setBounds(area.getX(), y + 18, w, 16);
 
+    // Status bar + tooltip toggle must be laid out even before the first
+    // detection - model-load and download errors land in statusLabel and
+    // would otherwise render into a zero-size (invisible) label.
+    {
+        int statusY = std::max(y + 40, area.getBottom() - 14);
+        statusLabel.setBounds(area.getX(), statusY, w - 76, 14);
+        tooltipCheckbox.setBounds(area.getRight() - 72, statusY - 2, 72, 16);
+    }
+
     if (!detected_) return;
 
     // Fixed space for controls below waveform (worst-case: stretch markers options)
@@ -695,9 +744,9 @@ void MainComponent::resized()
     bx += 82;
     metronomeBtn.setBounds(bx, y + 1, 32, 22);
     bx += 36;
-    timeSigLabel.setBounds(bx, y, 36, 24);
-    bx += 38;
-    beatCountLabel.setBounds(bx, y + 2, 100, 20);
+    timeSigCombo.setBounds(bx, y + 1, 58, 22);
+    bx += 62;
+    beatCountLabel.setBounds(bx, y + 2, 80, 20);
     confidenceLabel.setBounds(area.getRight() - 44, y + 2, 44, 20);
     bpmOriginalLabel.setBounds(area.getX() + 62, y + 26, 120, 14);
     y += 32;
@@ -778,13 +827,18 @@ void MainComponent::timerCallback()
             takeOffset,
             GetMediaItemTakeInfo_Value(mt, "D_PLAYRATE"));
 
-        // Poll REAPER stretch markers - update waveform if changed
-        // Skip during active drag (WaveformView updates stretchPairs_ locally)
+        // Poll REAPER stretch markers - update waveform if changed.
+        // Skip during ANY active mouse gesture (including the pre-threshold
+        // phase between mouseDown and drag commit) - replacing the marker
+        // vectors under a pending drag index reads out of bounds. The
+        // forced (-1) state persists, so the re-read runs right after
+        // mouseUp instead.
         int markerCount = GetTakeNumStretchMarkers(mt);
+        bool gestureActive = waveformView.isMouseGestureActive();
         // In marker mode: re-read when forced (-1) or periodically (~1s) for external edits
         // Periodic re-read catches REAPER-side marker edits without oscillation issues
         // In beat mode: re-read on any count change
-        if (waveformView.isMarkerEditMode() && !waveformView.isDraggingMarker())
+        if (waveformView.isMarkerEditMode() && !gestureActive)
         {
             if (++markerModeRereadCounter_ >= 5)  // every ~1s (5 * 200ms)
             {
@@ -797,8 +851,9 @@ void MainComponent::timerCallback()
             markerModeRereadCounter_ = 0;
         }
 
-        bool shouldReread = (lastStretchMarkerCount_ == -1)
-            || (!waveformView.isMarkerEditMode() && markerCount != lastStretchMarkerCount_);
+        bool shouldReread = !gestureActive
+            && ((lastStretchMarkerCount_ == -1)
+                || (!waveformView.isMarkerEditMode() && markerCount != lastStretchMarkerCount_));
 
         if (shouldReread)
         {
@@ -816,7 +871,9 @@ void MainComponent::timerCallback()
             {
                 double pos = 0, srcpos = 0;
                 GetTakeStretchMarker(mt, i, &pos, &srcpos);
-                float beatTime = static_cast<float>(srcpos - takeOffset);
+                // srcpos is a source position and detection times are
+                // source-absolute - they share one coordinate space
+                float beatTime = static_cast<float>(srcpos);
                 if (beatTime >= 0 && beatTime <= detection_.duration)
                     srcPositions.push_back(beatTime);
                 pairs.push_back({srcpos, pos});
@@ -861,10 +918,28 @@ void MainComponent::updateSelectedItem()
     {
         if (!ValidatePtr2(nullptr, currentItem_.item, "MediaItem*"))
         {
+            // Item was deleted in REAPER - keep any manual beat edits in
+            // the cache (the same file may be re-inserted later) and reset
+            // the UI fully so a dead item name doesn't linger
+            if (detected_ && !currentItem_.guid.empty())
+                cache_[currentItem_.guid] = detection_;
             currentItem_ = {};
             detected_ = false;
+            sourceLabel.setText("Select an audio item in REAPER", juce::dontSendNotification);
+            // While detecting, the button is the Cancel button - keep it alive
+            detectButton.setEnabled(detecting_);
             waveformView.clear();
+            waveformView.setVisible(false);
             showResults(false);
+            repaint();
+        }
+        else if (currentItem_.take
+                 && !ValidatePtr2(nullptr, currentItem_.take, "MediaItem_Take*"))
+        {
+            // Active take deleted/changed while the item stayed selected -
+            // refresh instead of dereferencing the dead pointer every tick
+            currentItem_.take = GetActiveTake(static_cast<MediaItem*>(currentItem_.item));
+            lastStretchMarkerCount_ = -1;
         }
     }
 
@@ -873,10 +948,15 @@ void MainComponent::updateSelectedItem()
     {
         if (currentItem_.item != nullptr)
         {
+            // Deselecting must not lose manual beat edits - the item-switch
+            // path below saves them, so save here too
+            if (detected_ && !currentItem_.guid.empty())
+                cache_[currentItem_.guid] = detection_;
             currentItem_ = {};
             detected_ = false;
             sourceLabel.setText("Select an audio item in REAPER", juce::dontSendNotification);
-            detectButton.setEnabled(false);
+            // While detecting, the button is the Cancel button - keep it alive
+            detectButton.setEnabled(detecting_);
             waveformView.clear();
             waveformView.setVisible(false);
             showResults(false);
@@ -891,7 +971,16 @@ void MainComponent::updateSelectedItem()
 
     // Compare pointer first (fast), then GUID for cache key
     if (item == currentItem_.item)
+    {
+        // Same item selected - still refresh the take pointer, the user
+        // may have switched or deleted the active take ("T" in REAPER)
+        if (take != currentItem_.take)
+        {
+            currentItem_.take = take;
+            lastStretchMarkerCount_ = -1;
+        }
         return;
+    }
 
     char guidBuf[64] = {};
     if (GetSetMediaItemInfo_String)
@@ -916,6 +1005,12 @@ void MainComponent::updateSelectedItem()
         {
             cache_[currentItem_.guid] = detection_;
 
+            // Preserve the user's BPM correction (/2, x2, typed) across
+            // item switches - restoring raw detection_.tempo would silently
+            // revert it every time they click away and back
+            float savedBpm = bpmEditor.getText().getFloatValue();
+            if (savedBpm <= 0) savedBpm = detection_.tempo;
+
             double firstDbTL = 0;
             if (!detection_.downbeats.empty() && currentItem_.item && currentItem_.take)
             {
@@ -926,8 +1021,9 @@ void MainComponent::updateSelectedItem()
                 double pRate = GetMediaItemTakeInfo_Value(mt, "D_PLAYRATE");
                 firstDbTL = iPos + (detection_.downbeats[0] - tOff) / (pRate > 0 ? pRate : 1.0);
             }
-            cacheInfo_[currentItem_.guid] = {currentItem_.name, detection_.tempo,
-                                             detection_.confidence, firstDbTL};
+            cacheInfo_[currentItem_.guid] = {currentItem_.name, savedBpm,
+                                             detection_.confidence, firstDbTL,
+                                             timeSigCombo.getSelectedId()};
         }
     }
 
@@ -962,13 +1058,18 @@ void MainComponent::updateSelectedItem()
     snprintf(info, sizeof(info), "%s  (%d:%02d)", displayName.c_str(), mins, secs);
     sourceLabel.setText(info, juce::dontSendNotification);
     sourceLabel.setColour(juce::Label::textColourId, hasAudio ? Colors::text : Colors::textDim);
-    detectButton.setEnabled(modelLoaded_ && !detecting_ && hasAudio);
-    if (!hasAudio)
-        detectButton.setTooltip("Selected item has no audio source (MIDI or empty)");
-    else if (!modelLoaded_)
-        detectButton.setTooltip("Model not loaded - check status bar");
-    else
-        detectButton.setTooltip("Run neural beat detection on the selected audio item");
+    // While detecting, the button acts as Cancel - don't retitle/disable it
+    // just because the selection changed under a running detection
+    if (!detecting_)
+    {
+        detectButton.setEnabled(modelLoaded_ && hasAudio);
+        if (!hasAudio)
+            detectButton.setTooltip("Selected item has no audio source (MIDI or empty)");
+        else if (!modelLoaded_)
+            detectButton.setTooltip("Model not loaded - check status bar");
+        else
+            detectButton.setTooltip("Run neural beat detection on the selected audio item");
+    }
 
     auto it = cache_.find(guid);
     if (it != cache_.end())
@@ -976,9 +1077,38 @@ void MainComponent::updateSelectedItem()
         detection_ = it->second;
         detected_ = true;
         originalTempo_ = detection_.tempo;
-        bpmEditor.setText(juce::String(detection_.tempo, 1), false);
-        bpmOriginalLabel.setVisible(false);
+
+        // Restore the user's corrected BPM if one was saved
+        float restoredBpm = detection_.tempo;
+        auto infoIt = cacheInfo_.find(guid);
+        if (infoIt != cacheInfo_.end() && infoIt->second.tempo > 0)
+            restoredBpm = infoIt->second.tempo;
+
+        // The cached downbeats already reflect any meter override, so they
+        // double as the Auto snapshot after a restore (the pre-override
+        // neural downbeats are not persisted per item)
+        autoDownbeats_ = detection_.downbeats;
+        autoTimeSigNum_ = detection_.timeSigNum;
+        autoTimeSigDenom_ = detection_.timeSigDenom;
+        timeSigCombo.setSelectedId(
+            infoIt != cacheInfo_.end() ? infoIt->second.timeSigComboId : 1,
+            juce::dontSendNotification);
+        bpmEditor.setText(juce::String(restoredBpm, 1), false);
+        if (std::abs(restoredBpm - detection_.tempo) > 0.05f)
+        {
+            char was[32];
+            snprintf(was, sizeof(was), "(was %.1f)", detection_.tempo);
+            bpmOriginalLabel.setText(was, juce::dontSendNotification);
+            bpmOriginalLabel.setVisible(true);
+        }
+        else
+        {
+            bpmOriginalLabel.setVisible(false);
+        }
+
         waveformView.setData(detection_.peaks, detection_.beats, detection_.downbeats, detection_.duration);
+        waveformView.setGridBpm(restoredBpm,
+            detection_.beats.empty() ? 0 : detection_.beats[0]);
         {
             auto* mi = static_cast<MediaItem*>(currentItem_.item);
             auto* mt = static_cast<MediaItem_Take*>(currentItem_.take);
@@ -1014,7 +1144,11 @@ void MainComponent::startDetection()
     detecting_ = true;
     detected_ = false;
     progressValue = 0.0;
-    detectButton.setEnabled(false);
+    // The button doubles as Cancel while detection runs - the whole
+    // pipeline polls shouldCancel, so this is a clean cooperative stop
+    detectButton.setButtonText("Cancel");
+    detectButton.setTooltip("Cancel the running detection");
+    detectButton.setEnabled(true);
     waveformView.setVisible(false);
     showResults(false);
 
@@ -1022,18 +1156,35 @@ void MainComponent::startDetection()
     progressLabel.setVisible(true);
     progressLabel.setText("Starting...", juce::dontSendNotification);
 
-    detectionThread_ = std::make_unique<DetectionThread>(*this, currentItem_.audioPath);
+    detectionThread_ = std::make_unique<DetectionThread>(
+        *this, currentItem_.audioPath, currentItem_.guid, currentItem_.name);
     detectionThread_->startThread();
 }
 
-void MainComponent::onDetectionComplete(const DetectionResult& result)
+void MainComponent::onDetectionComplete(const DetectionResult& result,
+                                        const std::string& forGuid,
+                                        const std::string& forName)
 {
     detecting_ = false;
-    detectionThread_.reset();
+    if (detectionThread_)
+    {
+        // The thread posted this callback as its final statement; wait for
+        // run() to actually return before destroying the object
+        detectionThread_->stopThread(2000);
+        detectionThread_.reset();
+    }
 
     progressBar->setVisible(false);
     progressLabel.setVisible(false);
-    detectButton.setEnabled(true);
+    detectButton.setButtonText("Detect Beats");
+    detectButton.setTooltip("Run neural beat detection on the selected audio item");
+    detectButton.setEnabled(modelLoaded_ && !currentItem_.audioPath.empty());
+
+    if (result.error == BeatDetector::kCancelledError)
+    {
+        setStatus("Detection cancelled", Colors::textDim);
+        return;
+    }
 
     if (!result.error.empty())
     {
@@ -1041,9 +1192,35 @@ void MainComponent::onDetectionComplete(const DetectionResult& result)
         return;
     }
 
+    // The user may have selected a DIFFERENT item (or none) while detection
+    // ran - displaying or caching the result under the current item would
+    // attach item A's beats to item B. Cache under the original GUID only.
+    if (forGuid != currentItem_.guid)
+    {
+        if (!forGuid.empty())
+        {
+            cache_[forGuid] = result;
+            cacheInfo_[forGuid] = {forName, result.tempo, result.confidence, 0.0};
+            rebuildMatchRefCombo();
+        }
+        char msg[160];
+        snprintf(msg, sizeof(msg),
+                 "Detection of '%s' finished (cached) - re-select it to view",
+                 forName.c_str());
+        setStatus(msg, Colors::warning);
+        return;
+    }
+
     detection_ = result;
     detected_ = true;
     originalTempo_ = result.tempo;
+
+    // Snapshot the neural meter so the time-sig dropdown's Auto can
+    // restore it after a manual override
+    autoDownbeats_ = result.downbeats;
+    autoTimeSigNum_ = result.timeSigNum;
+    autoTimeSigDenom_ = result.timeSigDenom;
+    timeSigCombo.setSelectedId(1, juce::dontSendNotification);
 
     bpmEditor.setText(juce::String(result.tempo, 1), false);
     bpmOriginalLabel.setVisible(false);
@@ -1114,6 +1291,25 @@ void MainComponent::onDetectionComplete(const DetectionResult& result)
                 else
                     ++it;
             }
+
+            // Prune the side maps to the surviving GUIDs, otherwise they
+            // grow unboundedly and the "Match to:" dropdown lists evicted
+            // items forever (selecting one can only fail)
+            for (auto it = cacheInfo_.begin(); it != cacheInfo_.end(); )
+            {
+                if (cache_.count(it->first) == 0)
+                    it = cacheInfo_.erase(it);
+                else
+                    ++it;
+            }
+            for (auto it = matchRefSelection_.begin(); it != matchRefSelection_.end(); )
+            {
+                if (cache_.count(it->first) == 0)
+                    it = matchRefSelection_.erase(it);
+                else
+                    ++it;
+            }
+            rebuildMatchRefCombo();
         }
     }
 }
@@ -1147,7 +1343,6 @@ void MainComponent::applyAction()
                 int refIdx = refId - 2;
                 std::string refGuid = (refIdx >= 0 && refIdx < static_cast<int>(matchRefGuids_.size()))
                     ? matchRefGuids_[refIdx] : "";
-                int cnt = 0;
 
                 if (refGuid.empty() || !cache_.count(refGuid) || detection_.downbeats.empty())
                 {
@@ -1155,14 +1350,51 @@ void MainComponent::applyAction()
                     break;
                 }
 
-                // Rate sanity check before starting
-                double rate = static_cast<double>(target) / userBpm;
+                // Find reference item by GUID BEFORE opening the undo block -
+                // a failed lookup must not leave an empty undo point behind
+                MediaItem* refItem = nullptr;
+                MediaItem_Take* refTake = nullptr;
+                int itemCount = CountMediaItems(nullptr);
+                for (int i = 0; i < itemCount; ++i)
+                {
+                    auto* cand = GetMediaItem(nullptr, i);
+                    if (!cand) continue;
+                    char buf[64] = {};
+                    GetSetMediaItemInfo_String(cand, "GUID", buf, false);
+                    if (std::string(buf) != refGuid) continue;
+                    refItem = cand;
+                    refTake = GetActiveTake(cand);
+                    break;
+                }
+                if (!refItem || !refTake)
+                {
+                    setStatus("Sync failed: reference item not found in project", Colors::warning);
+                    break;
+                }
+
+                auto& refDet = cache_[refGuid];
+
+                double refPos = GetMediaItemInfo_Value(refItem, "D_POSITION");
+                double refOff = GetMediaItemTakeInfo_Value(refTake, "D_STARTOFFS");
+                double refRate = GetMediaItemTakeInfo_Value(refTake, "D_PLAYRATE");
+                if (refRate <= 0) refRate = 1.0;
+
+                double refDbTL = refPos;
+                if (!refDet.downbeats.empty())
+                    refDbTL = refPos + (refDet.downbeats[0] - refOff) / refRate;
+
+                // The grid gets the reference's EFFECTIVE tempo (detected
+                // tempo scaled by its playrate) - the slave playrate must
+                // target the same value or grid and audio disagree by
+                // exactly refRate and per-beat stretching has to compensate
+                double effectiveBpm = static_cast<double>(refDet.tempo) * refRate;
+                double rate = effectiveBpm / userBpm;
                 if (rate < 0.25 || rate > 4.0)
                 {
                     char warn[128];
                     snprintf(warn, sizeof(warn),
                         "Tempo ratio too extreme: %.1f -> %.1f BPM (%.1fx)",
-                        userBpm, target, rate);
+                        userBpm, effectiveBpm, rate);
                     setStatus(warn, Colors::warning);
                     break;
                 }
@@ -1170,112 +1402,90 @@ void MainComponent::applyAction()
                 if (waveformView.isMarkerEditMode())
                     waveformView.setMarkerEditMode(false);
 
-                auto& refDet = cache_[refGuid];
-                bool refFound = false;
-
                 Undo_BeginBlock2(nullptr);
                 PreventUIRefresh(1);
 
-                // Find reference item by GUID
-                int itemCount = CountMediaItems(nullptr);
-                for (int i = 0; i < itemCount; ++i)
-                {
-                    auto* refItem = GetMediaItem(nullptr, i);
-                    if (!refItem) continue;
-                    char buf[64] = {};
-                    GetSetMediaItemInfo_String(refItem, "GUID", buf, false);
-                    if (std::string(buf) != refGuid) continue;
+                // Step 1: Set REAPER grid = reference tempo
+                int ex = CountTempoTimeSigMarkers(nullptr);
+                for (int j = ex - 1; j >= 0; --j)
+                    DeleteTempoTimeSigMarker(nullptr, j);
+                SetTempoTimeSigMarker(nullptr, -1, refDbTL, -1, -1,
+                    effectiveBpm, refDet.timeSigNum, refDet.timeSigDenom, false);
+                UpdateTimeline();
 
-                    auto* refTake = GetActiveTake(refItem);
-                    if (!refTake) break;
-                    refFound = true;
+                // Step 2: Stretch markers on REFERENCE (regularize to grid)
+                ReaperActions::insertStretchMarkers(
+                    refTake, refItem, refDet.beats,
+                    4/*project grid*/, 1/*balanced*/,
+                    refDet.tempo, refDet.downbeats, refDet.timeSigNum);
 
-                    double refPos = GetMediaItemInfo_Value(refItem, "D_POSITION");
-                    double refOff = GetMediaItemTakeInfo_Value(refTake, "D_STARTOFFS");
-                    double refRate = GetMediaItemTakeInfo_Value(refTake, "D_PLAYRATE");
-                    if (refRate <= 0) refRate = 1.0;
+                // Step 3: Set slave playrate (pitch preserved) — no separate
+                // matchTempo call, everything in one undo block
+                double oldRate = GetMediaItemTakeInfo_Value(take, "D_PLAYRATE");
+                double oldLen = GetMediaItemInfo_Value(item, "D_LENGTH");
+                SetMediaItemTakeInfo_Value(take, "D_PLAYRATE", rate);
+                SetMediaItemTakeInfo_Value(take, "B_PPITCH", 1.0);
 
-                    double refDbTL = refPos;
-                    if (!refDet.downbeats.empty())
-                        refDbTL = refPos + (refDet.downbeats[0] - refOff) / refRate;
+                // Keep the item covering the SAME source content - deriving
+                // length from the full source would extend a trimmed item,
+                // revealing trimmed-away audio
+                if (oldRate > 0)
+                    SetMediaItemInfo_Value(item, "D_LENGTH", oldLen * oldRate / rate);
 
-                    double effectiveBpm = refDet.tempo * static_cast<float>(refRate);
+                // Step 4: Align slave's first downbeat to reference's
+                double slavePos = GetMediaItemInfo_Value(item, "D_POSITION");
+                double slaveOff = GetMediaItemTakeInfo_Value(take, "D_STARTOFFS");
+                double slaveDbTL = slavePos + (detection_.downbeats[0] - slaveOff) / rate;
+                double shift = refDbTL - slaveDbTL;
+                SetMediaItemInfo_Value(item, "D_POSITION", slavePos + shift);
+                UpdateItemInProject(item);
 
-                    // Step 1: Set REAPER grid = reference tempo
-                    int ex = CountTempoTimeSigMarkers(nullptr);
-                    for (int j = ex - 1; j >= 0; --j)
-                        DeleteTempoTimeSigMarker(nullptr, j);
-                    SetTempoTimeSigMarker(nullptr, -1, refDbTL, -1, -1,
-                        effectiveBpm, refDet.timeSigNum, refDet.timeSigDenom, false);
-                    UpdateTimeline();
-
-                    // Step 2: Stretch markers on REFERENCE (regularize to grid)
-                    ReaperActions::insertStretchMarkers(
-                        refTake, refItem, refDet.beats,
-                        4/*project grid*/, 1/*balanced*/,
-                        refDet.tempo, refDet.downbeats, refDet.timeSigNum);
-
-                    // Step 3: Set slave playrate (pitch preserved) — no separate
-                    // matchTempo call, everything in one undo block
-                    SetMediaItemTakeInfo_Value(take, "D_PLAYRATE", rate);
-                    SetMediaItemTakeInfo_Value(take, "B_PPITCH", 1.0);
-
-                    PCM_source* source = GetMediaItemTake_Source(take);
-                    if (source)
-                    {
-                        double sourceLen = 0;
-                        bool lengthIsQN = false;
-                        sourceLen = GetMediaSourceLength(source, &lengthIsQN);
-                        double offset = GetMediaItemTakeInfo_Value(take, "D_STARTOFFS");
-                        double newLen = (sourceLen - offset) / rate;
-                        SetMediaItemInfo_Value(item, "D_LENGTH", newLen);
-                    }
-
-                    // Step 4: Align slave's first downbeat to reference's
-                    double slavePos = GetMediaItemInfo_Value(item, "D_POSITION");
-                    double slaveOff = GetMediaItemTakeInfo_Value(take, "D_STARTOFFS");
-                    double slaveDbTL = slavePos + (detection_.downbeats[0] - slaveOff) / rate;
-                    double shift = refDbTL - slaveDbTL;
-                    SetMediaItemInfo_Value(item, "D_POSITION", slavePos + shift);
-                    UpdateItemInProject(item);
-
-                    break;
-                }
-
-                // Step 5: Stretch markers on SLAVE (project grid) — only if reference found
-                if (refFound)
-                {
-                    cnt = ReaperActions::insertStretchMarkers(
-                        take, item, detection_.beats,
-                        4/*project grid*/, 1/*balanced*/,
-                        userBpm, detection_.downbeats, detection_.timeSigNum);
-                }
+                // Step 5: Stretch markers on SLAVE (project grid)
+                int cnt = ReaperActions::insertStretchMarkers(
+                    take, item, detection_.beats,
+                    4/*project grid*/, 1/*balanced*/,
+                    userBpm, detection_.downbeats, detection_.timeSigNum);
 
                 PreventUIRefresh(-1);
 
                 char undoLabel[64];
                 snprintf(undoLabel, sizeof(undoLabel),
-                    "ReaBeat: Sync to reference (%.1f BPM)", target);
+                    "ReaBeat: Sync to reference (%.1f BPM)", effectiveBpm);
                 Undo_EndBlock2(nullptr, undoLabel, -1);
 
-                if (refFound && cnt > 0)
+                if (cnt > 0)
                 {
                     char msg[128];
                     snprintf(msg, sizeof(msg),
                         "Synced: tempo map + %.1f BPM + %d markers",
-                        target, cnt);
+                        effectiveBpm, cnt);
                     setStatus(msg, Colors::success);
                     lastStretchMarkerCount_ = -1;
                     waveformView.setMarkerEditMode(true);
                 }
                 else
                 {
-                    setStatus("Sync failed: reference item not found in project", Colors::warning);
+                    setStatus("Synced, but no stretch markers inserted - check detection",
+                              Colors::warning);
                 }
             }
             else
             {
                 // --- SIMPLE MATCH TO PROJECT ---
+                // Pre-check the ratio here: matchTempo rejects extremes
+                // without a dialog (blocking dialogs hide behind the
+                // always-on-top window), so the feedback happens here
+                double r = static_cast<double>(target) / userBpm;
+                if (r < 0.25 || r > 4.0)
+                {
+                    char warn[128];
+                    snprintf(warn, sizeof(warn),
+                        "Tempo ratio too extreme: %.1f -> %.1f BPM (%.1fx) - try /2 or x2",
+                        userBpm, target, r);
+                    setStatus(warn, Colors::warning);
+                    break;
+                }
+
                 float firstDb = (alignCheckbox.getToggleState() && !detection_.downbeats.empty())
                     ? detection_.downbeats[0] : -1.0f;
 
@@ -1298,10 +1508,19 @@ void MainComponent::applyAction()
 
         case kTempoMap:
         {
+            // REAPER tempo markers are quarter-note BPM. In /8 compound
+            // meters the model taps dotted quarters, so the detected BPM
+            // scales by 1.5 and marker spacing is expressed in quarters
+            // (6/8 bar = 3 quarters, 9/8 = 4.5, 12/8 = 6).
+            double quartersPerBeat = (detection_.timeSigDenom == 8) ? 1.5 : 1.0;
+            double quartersPerBar = detection_.timeSigNum * 4.0
+                                  / std::max(1, detection_.timeSigDenom);
+            float mapBpm = static_cast<float>(userBpm * quartersPerBeat);
+
             int modeId = tempoMapModeCombo.getSelectedId();
             std::string mode = "constant";
             std::vector<float> beatList;
-            int beatsPerMarker = detection_.timeSigNum;
+            double quartersPerMarker = quartersPerBar;
 
             if (modeId == 1)
             {
@@ -1311,17 +1530,27 @@ void MainComponent::applyAction()
             else if (modeId == 2)
             {
                 mode = "variable_bars";
-                beatList = detection_.downbeats.empty() ? detection_.beats : detection_.downbeats;
+                if (detection_.downbeats.empty())
+                {
+                    // Falling back to raw beats means ONE beat per marker -
+                    // keeping bar spacing would compute localBpm a bar's
+                    // worth too high and the 25% tempo filter would then
+                    // reject every marker
+                    beatList = detection_.beats;
+                    quartersPerMarker = quartersPerBeat;
+                }
+                else
+                    beatList = detection_.downbeats;
             }
             else
             {
                 mode = "variable_beats";
                 beatList = detection_.beats;
-                beatsPerMarker = 1;
+                quartersPerMarker = quartersPerBeat;
             }
 
-            int cnt = ReaperActions::insertTempoMap(take, item, userBpm, beatList,
-                beatsPerMarker, detection_.timeSigNum, detection_.timeSigDenom, mode);
+            int cnt = ReaperActions::insertTempoMap(take, item, mapBpm, beatList,
+                quartersPerMarker, detection_.timeSigNum, detection_.timeSigDenom, mode);
             if (cnt > 0)
             {
                 char msg[64];
@@ -1400,7 +1629,19 @@ void MainComponent::applyAction()
 void MainComponent::buttonClicked(juce::Button* button)
 {
     if (button == &detectButton)
+    {
+        if (detecting_)
+        {
+            // Acting as the Cancel button - signal the thread and let the
+            // pipeline's shouldCancel polling wind it down cooperatively
+            if (detectionThread_)
+                detectionThread_->signalThreadShouldExit();
+            detectButton.setEnabled(false);  // re-enabled on completion
+            setStatus("Cancelling...", Colors::warning);
+            return;
+        }
         startDetection();
+    }
     else if (button == &applyButton)
         applyAction();
     else if (button == &bpmHalfBtn || button == &bpmDoubleBtn)
@@ -1409,6 +1650,9 @@ void MainComponent::buttonClicked(juce::Button* button)
         if (bpm <= 0) return;
 
         bpm = (button == &bpmHalfBtn) ? bpm / 2.0f : bpm * 2.0f;
+        // Repeated clicks must not run the BPM out of any musical range -
+        // downstream tempo map insertion has no clamp of its own
+        if (bpm < 20.0f || bpm > 999.0f) return;
         bpmEditor.setText(juce::String(bpm, 1), false);
 
         char was[32];
@@ -1445,17 +1689,22 @@ void MainComponent::buttonClicked(juce::Button* button)
         menu.addSeparator();
         menu.addItem(4, "GitHub");
 
-        int choice = menu.show();
-        juce::URL url;
-        switch (choice)
+        // Async: a synchronous modal loop would leave `this` dangling if
+        // the window is destroyed while the menu is open (and the item
+        // polling timer keeps mutating state under the modal loop)
+        menu.showMenuAsync(juce::PopupMenu::Options(), [](int choice)
         {
-            case 1: url = juce::URL("https://ko-fi.com/quickmd"); break;
-            case 2: url = juce::URL("https://buymeacoffee.com/bsroczynskh"); break;
-            case 3: url = juce::URL("https://www.paypal.com/paypalme/b451c"); break;
-            case 4: url = juce::URL("https://github.com/b451c/ReaBeat"); break;
-            default: return;
-        }
-        url.launchInDefaultBrowser();
+            juce::URL url;
+            switch (choice)
+            {
+                case 1: url = juce::URL("https://ko-fi.com/quickmd"); break;
+                case 2: url = juce::URL("https://buymeacoffee.com/bsroczynskh"); break;
+                case 3: url = juce::URL("https://www.paypal.com/paypalme/b451c"); break;
+                case 4: url = juce::URL("https://github.com/b451c/ReaBeat"); break;
+                default: return;
+            }
+            url.launchInDefaultBrowser();
+        });
     }
 }
 
@@ -1463,16 +1712,50 @@ void MainComponent::comboBoxChanged(juce::ComboBox*) {}
 
 void MainComponent::mouseDown(const juce::MouseEvent& e)
 {
-    // Click on "ReaBeat" title -> dock/undock menu
+    // Click on "ReaBeat" title -> dock/undock + UI scale menu
     if (e.originalComponent == &titleLabel)
     {
         juce::PopupMenu menu;
         bool docked = onIsDocked ? onIsDocked() : false;
         menu.addItem(1, docked ? "Undock window" : "Dock window");
-        int choice = menu.show();
-        if (choice == 1 && onToggleDock)
-            onToggleDock();
+
+        juce::PopupMenu scaleMenu;
+        scaleMenu.addItem(10, "100%", true, uiScale_ < 1.125f);
+        scaleMenu.addItem(11, "125%", true, uiScale_ >= 1.125f && uiScale_ < 1.375f);
+        scaleMenu.addItem(12, "150%", true, uiScale_ >= 1.375f && uiScale_ < 1.75f);
+        scaleMenu.addItem(13, "200%", true, uiScale_ >= 1.75f);
+        menu.addSubMenu("UI scale", scaleMenu);
+
+        menu.showMenuAsync(juce::PopupMenu::Options(),
+            [safe = juce::Component::SafePointer<MainComponent>(this)](int choice)
+        {
+            auto* self = safe.getComponent();
+            if (!self) return;
+            if (choice == 1 && self->onToggleDock)
+                self->onToggleDock();
+            else if (choice == 10) self->setUiScale(1.0f);
+            else if (choice == 11) self->setUiScale(1.25f);
+            else if (choice == 12) self->setUiScale(1.5f);
+            else if (choice == 13) self->setUiScale(2.0f);
+        });
     }
+}
+
+void MainComponent::setUiScale(float scale)
+{
+    uiScale_ = juce::jlimit(1.0f, 2.0f, scale);
+    setTransform(uiScale_ == 1.0f ? juce::AffineTransform()
+                                  : juce::AffineTransform::scale(uiScale_));
+    if (SetExtState)
+    {
+        char buf[16];
+        snprintf(buf, sizeof(buf), "%.2f", uiScale_);
+        SetExtState("ReaBeat", "uiscale", buf, true);
+    }
+    if (onUiScaleChanged)
+        onUiScaleChanged();
+    resized();
+    repaint();
 }
 
 // --- UI helpers ---
@@ -1530,7 +1813,7 @@ void MainComponent::showResults(bool show)
     bpmDoubleBtn.setVisible(show);
     setSessionTempoBtn.setVisible(show);
     metronomeBtn.setVisible(show);
-    timeSigLabel.setVisible(show);
+    timeSigCombo.setVisible(show);
     beatCountLabel.setVisible(show);
     confidenceLabel.setVisible(show);
     actionLabel.setVisible(show);
@@ -1565,9 +1848,13 @@ void MainComponent::updateUI()
 {
     if (!detected_) return;
 
-    char ts[16];
-    snprintf(ts, sizeof(ts), "%d/%d", detection_.timeSigNum, detection_.timeSigDenom);
-    timeSigLabel.setText(ts, juce::dontSendNotification);
+    // With Auto selected, show the detected meter as the combo's text
+    if (timeSigCombo.getSelectedId() <= 1)
+    {
+        char ts[16];
+        snprintf(ts, sizeof(ts), "%d/%d", detection_.timeSigNum, detection_.timeSigDenom);
+        timeSigCombo.setText(juce::String(ts), juce::dontSendNotification);
+    }
 
     int bars = detection_.downbeats.empty() ? 0 : static_cast<int>(detection_.downbeats.size());
     char bc[64];
@@ -1596,9 +1883,73 @@ void MainComponent::setStatus(const juce::String& msg, juce::Colour colour)
     statusLabel.setColour(juce::Label::textColourId, colour);
 }
 
+void MainComponent::applyTimeSigSelection(int comboId)
+{
+    if (!detected_)
+        return;
+
+    struct Meter { int num, den, beatsPerBar; };
+    // beatsPerBar counts DETECTED beats per bar: the model taps dotted
+    // quarters in compound meters, so 6/8 = 2 main beats, 9/8 = 3, 12/8 = 4
+    static const Meter meters[] = {
+        {0, 0, 0},                        // index 0 unused (id 1 = Auto)
+        {2, 4, 2}, {3, 4, 3}, {4, 4, 4},  // ids 2-4
+        {6, 8, 2}, {9, 8, 3}, {12, 8, 4}, // ids 5-7
+    };
+
+    if (comboId <= 1)
+    {
+        // Auto: restore the neural downbeats + detected meter
+        detection_.downbeats = autoDownbeats_;
+        detection_.timeSigNum = autoTimeSigNum_;
+        detection_.timeSigDenom = autoTimeSigDenom_;
+    }
+    else if (comboId - 1 < static_cast<int>(std::size(meters)))
+    {
+        const auto& m = meters[comboId - 1];
+        detection_.timeSigNum = m.num;
+        detection_.timeSigDenom = m.den;
+
+        // Recompute downbeats as every Nth beat, anchored at the beat
+        // nearest the current first downbeat (respects manual edits)
+        std::vector<float> newDb;
+        if (!detection_.beats.empty())
+        {
+            size_t anchor = 0;
+            if (!detection_.downbeats.empty())
+            {
+                float target = detection_.downbeats[0];
+                float bestD = 1e9f;
+                for (size_t i = 0; i < detection_.beats.size(); ++i)
+                {
+                    float d = std::abs(detection_.beats[i] - target);
+                    if (d < bestD) { bestD = d; anchor = i; }
+                }
+            }
+            for (size_t i = anchor; i < detection_.beats.size();
+                 i += static_cast<size_t>(m.beatsPerBar))
+                newDb.push_back(detection_.beats[i]);
+        }
+        detection_.downbeats = std::move(newDb);
+    }
+    else
+        return;
+
+    if (!currentItem_.guid.empty())
+    {
+        auto it = cacheInfo_.find(currentItem_.guid);
+        if (it != cacheInfo_.end())
+            it->second.timeSigComboId = comboId;
+        cache_[currentItem_.guid] = detection_;
+    }
+
+    waveformView.setData(detection_.peaks, detection_.beats,
+                         detection_.downbeats, detection_.duration);
+    updateUI();
+}
+
 void MainComponent::rebuildMatchRefCombo()
 {
-    int prevId = matchRefCombo.getSelectedId();
     matchRefCombo.clear(juce::dontSendNotification);
     matchRefGuids_.clear();
 
@@ -1687,7 +2038,13 @@ void MainComponent::loadOrDownloadModel()
 
 void MainComponent::onModelDownloadComplete(bool ok)
 {
-    modelDownloadThread_.reset();
+    if (modelDownloadThread_)
+    {
+        // The thread posted this callback as its final statement; wait for
+        // run() to actually return before destroying the object
+        modelDownloadThread_->stopThread(2000);
+        modelDownloadThread_.reset();
+    }
 
     // Always restore button label and hide progress UI after download attempt.
     detectButton.setButtonText("Detect Beats");

@@ -33,8 +33,17 @@ bool BeatDetector::loadModel(const std::string& modelPath)
         opts.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
 
 #ifdef _WIN32
-        // ONNX Runtime on Windows requires wide string path
-        std::wstring widePath(modelPath.begin(), modelPath.end());
+        // ONNX Runtime on Windows requires wide string path.
+        // modelPath is UTF-8 (JUCE convention) - a byte-for-byte copy into
+        // wchar_t corrupts any non-ASCII path (e.g. Cyrillic/CJK/Polish
+        // Windows usernames), so convert properly.
+        std::wstring widePath;
+        int wlen = MultiByteToWideChar(CP_UTF8, 0, modelPath.c_str(), -1, nullptr, 0);
+        if (wlen > 1)
+        {
+            widePath.resize(static_cast<size_t>(wlen - 1));
+            MultiByteToWideChar(CP_UTF8, 0, modelPath.c_str(), -1, widePath.data(), wlen);
+        }
         session_ = std::make_unique<Ort::Session>(*env_, widePath.c_str(), opts);
 #else
         session_ = std::make_unique<Ort::Session>(*env_, modelPath.c_str(), opts);
@@ -42,7 +51,14 @@ bool BeatDetector::loadModel(const std::string& modelPath)
         modelLoaded_ = true;
         return true;
     }
-    catch (const Ort::Exception& e)
+    catch (const std::exception&)
+    {
+        // Ort::Exception derives from std::exception; also covers bad_alloc
+        // while mapping the 79 MB model on a memory-starved system.
+        modelLoaded_ = false;
+        return false;
+    }
+    catch (...)
     {
         modelLoaded_ = false;
         return false;
@@ -79,32 +95,47 @@ std::vector<float> BeatDetector::resampleTo22050(const std::vector<float>& audio
     return output;
 }
 
-float BeatDetector::computeConfidence(const std::vector<float>& beats, float tempo)
+float BeatDetector::computeConfidence(const std::vector<float>& beats)
 {
     if (beats.size() < 4)
         return 0.5f;
 
-    float expectedIbi = 60.0f / tempo;
-    int consistent = 0;
-
+    // Measure interval consistency against the median inter-beat interval,
+    // NOT against 60/tempo: the reported tempo is octave-corrected into
+    // 78-185 BPM, so for e.g. a steady 70 BPM track it is 140 and every
+    // interval would "deviate" 100%, reporting 0% for a perfect detection.
+    std::vector<float> intervals;
+    intervals.reserve(beats.size() - 1);
     for (size_t i = 1; i < beats.size(); ++i)
+        intervals.push_back(beats[i] - beats[i - 1]);
+
+    auto sorted = intervals;
+    std::sort(sorted.begin(), sorted.end());
+    float medianIbi = sorted[sorted.size() / 2];
+    if (medianIbi <= 0.0f)
+        return 0.0f;
+
+    int consistent = 0;
+    for (float ibi : intervals)
     {
-        float ibi = beats[i] - beats[i - 1];
-        float deviation = std::abs(ibi - expectedIbi) / expectedIbi;
+        float deviation = std::abs(ibi - medianIbi) / medianIbi;
         if (deviation < 0.10f)
             ++consistent;
     }
 
-    return std::min(1.0f, static_cast<float>(consistent) / static_cast<float>(beats.size() - 1));
+    return std::min(1.0f, static_cast<float>(consistent) / static_cast<float>(intervals.size()));
 }
 
 
 DetectionResult BeatDetector::detect(const std::vector<float>& audioMono,
                                       int sampleRate,
-                                      std::function<void(const std::string&, float)> progressCb)
+                                      std::function<void(const std::string&, float)> progressCb,
+                                      std::function<bool()> shouldCancel)
 {
     DetectionResult result;
     auto t0 = std::chrono::steady_clock::now();
+
+    auto cancelled = [&]() { return shouldCancel && shouldCancel(); };
 
     if (!modelLoaded_)
     {
@@ -163,14 +194,38 @@ DetectionResult BeatDetector::detect(const std::vector<float>& audioMono,
         }
     }
 
-    // Resample to 22050 Hz
-    auto audio22k = resampleTo22050(audioMono, sampleRate);
+    if (cancelled())
+    {
+        result.error = kCancelledError;
+        return result;
+    }
 
-    if (progressCb) progressCb("Computing spectrogram...", 0.1f);
+    // Resample + mel spectrogram allocate hundreds of MB for very long
+    // files (90 min: ~476 MB resample output while the mono buffer is
+    // still alive, ~140 MB+ mel). An uncaught bad_alloc here would escape
+    // to the juce::Thread and std::terminate the whole REAPER process.
+    std::vector<float> audio22k;
+    std::vector<std::vector<float>> spectrogram;
+    try
+    {
+        audio22k = resampleTo22050(audioMono, sampleRate);
 
-    // Mel spectrogram
-    MelSpectrogram mel;
-    auto spectrogram = mel.compute(audio22k);
+        if (progressCb) progressCb("Computing spectrogram...", 0.1f);
+
+        if (cancelled())
+        {
+            result.error = kCancelledError;
+            return result;
+        }
+
+        MelSpectrogram mel;
+        spectrogram = mel.compute(audio22k);
+    }
+    catch (const std::bad_alloc&)
+    {
+        result.error = "Out of memory preparing audio. The item may be too long for available RAM - try splitting it.";
+        return result;
+    }
     if (spectrogram.empty())
     {
         result.error = "Failed to compute spectrogram";
@@ -191,10 +246,15 @@ DetectionResult BeatDetector::detect(const std::vector<float>& audioMono,
     if (progressCb) progressCb("Running neural network...", 0.2f);
 
     // ONNX inference
+    struct DetectionCancelled {};
     InferenceProcessor inference(*session_);
     try {
     auto [beatLogits, downbeatLogits] = inference.process(spectrogram,
         [&](float frac) {
+            // Thrown between chunks (not inside Ort::Run), caught below -
+            // gives per-chunk cancellation granularity (~30 s of audio).
+            if (cancelled())
+                throw DetectionCancelled{};
             if (progressCb)
                 progressCb("Running neural network...", 0.2f + frac * 0.5f);
         });
@@ -259,6 +319,12 @@ DetectionResult BeatDetector::detect(const std::vector<float>& audioMono,
     constexpr float kRefinementMaxSec = 600.0f;  // 10 min
     bool refine = (audio22k.size() / 22050.0) <= kRefinementMaxSec;
 
+    if (cancelled())
+    {
+        result.error = kCancelledError;
+        return result;
+    }
+
     std::vector<float> refinedBeats;
     std::vector<float> rawDownbeats;
     if (refine)
@@ -298,12 +364,14 @@ DetectionResult BeatDetector::detect(const std::vector<float>& audioMono,
     }
 
     // Confidence
-    result.confidence = computeConfidence(result.beats, result.tempo);
+    result.confidence = computeConfidence(result.beats);
 
     auto t1 = std::chrono::steady_clock::now();
     result.detectionTime = std::chrono::duration<float>(t1 - t0).count();
 
     if (progressCb) progressCb("Done", 1.0f);
+    } catch (const DetectionCancelled&) {
+        result.error = kCancelledError;
     } catch (const std::exception& e) {
         result.error = std::string("Detection failed: ") + e.what();
     } catch (...) {
@@ -317,7 +385,8 @@ DetectionResult BeatDetector::detect(const std::vector<float>& audioMono,
 }
 
 DetectionResult BeatDetector::detectFile(const std::string& filePath,
-                                          std::function<void(const std::string&, float)> progressCb)
+                                          std::function<void(const std::string&, float)> progressCb,
+                                          std::function<bool()> shouldCancel)
 {
     // Use REAPER API to read audio — supports ALL formats REAPER can open
     // (mp3, flac, ogg, opus, aac, wav, aiff, wma, etc.)
@@ -339,7 +408,9 @@ DetectionResult BeatDetector::detectFile(const std::string& filePath,
     auto sampleRate = static_cast<int>(source->GetSampleRate());
     auto numChannels = source->GetNumChannels();
     auto lengthSec = source->GetLength();
-    auto numSamples = static_cast<int>(lengthSec * sampleRate);
+    // int64: an int would overflow past ~3.1 h at 192 kHz and report
+    // "Invalid audio source" for a perfectly valid file
+    auto numSamples = static_cast<int64_t>(lengthSec * sampleRate);
 
     if (sampleRate < 1 || numSamples < 1)
     {
@@ -368,10 +439,19 @@ DetectionResult BeatDetector::detectFile(const std::string& filePath,
         transfer.nch = numChannels;
         transfer.samples = chunkBuf.data();
 
-        int offsetSamples = 0;
+        int64_t offsetSamples = 0;
         while (offsetSamples < numSamples)
         {
-            int thisChunk = std::min(chunkSamples, numSamples - offsetSamples);
+            if (shouldCancel && shouldCancel())
+            {
+                delete source;
+                DetectionResult result;
+                result.error = kCancelledError;
+                return result;
+            }
+
+            int thisChunk = static_cast<int>(
+                std::min<int64_t>(chunkSamples, numSamples - offsetSamples));
             transfer.time_s = static_cast<double>(offsetSamples) / sampleRate;
             transfer.length = thisChunk;
             transfer.samples_out = 0;
@@ -400,7 +480,8 @@ DetectionResult BeatDetector::detectFile(const std::string& filePath,
             offsetSamples += read;
             if (progressCb && numSamples > 0)
                 progressCb("Reading audio...",
-                           0.05f * static_cast<float>(offsetSamples) / numSamples);
+                           0.05f * static_cast<float>(offsetSamples)
+                                 / static_cast<float>(numSamples));
         }
     }
     catch (const std::bad_alloc&)
@@ -420,5 +501,5 @@ DetectionResult BeatDetector::detectFile(const std::string& filePath,
         return result;
     }
 
-    return detect(mono, sampleRate, progressCb);
+    return detect(mono, sampleRate, progressCb, shouldCancel);
 }

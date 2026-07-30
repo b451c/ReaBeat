@@ -2,6 +2,44 @@
 
 All notable changes to ReaBeat are documented here. Based on [Keep a Changelog](https://keepachangelog.com/). Adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.0.3] - 2026-07-31
+
+Full-code correctness audit round: 5 critical fixes, ~30 bug fixes, 4 new features. Verified by an automated end-to-end suite driving a real REAPER instance (`tests/reaproof/`) - including stretch markers on trimmed items, detection mid-selection-change, tempo map ranges and cancellation.
+
+### Fixed - critical
+- **Stretch markers landed `D_STARTOFFS` seconds late on trimmed items** - detection beat times are source-file positions, but every Insert Stretch Markers mode added the take offset on top when writing `srcpos`. Invisible in ReaBeat's own display (the readback subtracted it again) but wrong against the actual audio for any slip-edited/trimmed item, and it made multi-track sync mix two coordinate conventions (tempo map used the correct one) - guaranteed drift. All marker read/write paths now share one convention: `srcpos` = source-absolute beat time, no offset.
+- **Detection result could attach to the wrong item** - selecting another item while detection ran displayed and cached item A's beats under item B's GUID (Apply would then stretch B with A's beats, and B's cache was poisoned). Results now carry the GUID they were started for; on mismatch they're cached for the original item only, with a status note.
+- **Crash risk while dragging markers** - the periodic ~1 s marker re-read (and the forced re-read after add/move/delete) could replace/shrink the marker arrays mid-gesture; a stale drag index then read out of bounds. Re-reads are now deferred while any mouse gesture is active and all drag indices are bounds-checked.
+- **Corrupt model cached as valid forever** - a killed download left a partial file that the next download APPENDED to (JUCE `FileOutputStream` appends to existing files); the resulting oversized file could pass the size check. Downloads now go to a temp `.part` file with completeness verification (Content-Length + write status) and atomic rename. Likely the root cause of several "Detect stays grey / model not loaded" reports.
+- **Out-of-memory during resample/mel could kill all of REAPER** - the v2.0.2 OOM guard covered only the file-read stage; `bad_alloc` from the resampler or mel spectrogram on very long files escaped the thread and terminated the process. Now caught and reported like the read stage.
+
+### Fixed
+- **Windows: non-ASCII user folders broke model loading** (GitHub #1, bobo198504) - the model path was byte-copied into a wide string; now converted properly with `MultiByteToWideChar(CP_UTF8)`. A Windows username with Polish/Cyrillic/CJK characters no longer prevents the model from loading.
+- **REAPER shortcuts needed several presses; persisted after closing ReaBeat** (poydepzaj1616) - the JUCE message pump ran unconditionally forever and could dispatch REAPER's own keyboard events past REAPER's accelerator handling. The pump now runs only while the ReaBeat window is visible.
+- **Confidence reported ~0% for clean slow/fast tracks** - it compared beat intervals against the octave-corrected BPM (a perfect 70 BPM track was scored against 140). Now measured against the median inter-beat interval.
+- **"Variable - beats" tempo map created a new measure on every beat** - the time signature was passed with every tempo marker; now only the first marker carries it.
+- **Match Tempo extended trimmed items to full source length** - item length is now scaled from its current length (`oldLen * oldRate / newRate`), not recomputed from the source file. Same fix in the multi-track sync pipeline.
+- **Match Tempo could show a blocking dialog hidden behind the plugin window** - extreme-ratio rejection now reports via the status bar (the always-on-top window made the modal invisible and REAPER appeared frozen).
+- **Tempo map wrote markers outside the item** - beats from trimmed-away source regions inserted markers beyond the cleared range (even piling up at position 0 for pre-trim beats). Insertion is now clipped to the item's window.
+- **Multi-track sync used two different reference tempos** when the reference item's playrate wasn't 1.0 - the grid got the effective BPM but the slave playrate targeted the raw BPM. Both now use the effective BPM, and a failed reference lookup no longer leaves an empty undo point.
+- **Manual beat edits were lost when clicking empty arrange space** - deselecting saves edits to the cache like switching items always did; the item-deleted path does too.
+- **Pre-detection errors were invisible** - the status bar (and tooltip toggle) had no layout before the first detection, so "Failed to load model" / "Download failed" rendered into a zero-size label. Now always laid out.
+- **N key never advanced past the current gap** - the scan skipped by the gap's end beat, which always re-found the same gap after zooming to it. It now advances by gap start, and wrap-around actually works.
+- **Double-click in the ruler inserted beats/markers** - the "guaranteed safe seek zone" now also guards double-clicks (rapid seek-clicking could add a real REAPER stretch marker).
+- **Playhead drifted visually in marker mode** - it was drawn through the linear time map, ignoring stretch markers; seek used the marker-aware map. Both now share the same mapping (beat-flash timing fixed too).
+- **Auto-follow overrode manual scrolling before the first beat** - follow is now re-enabled only on the stop-to-play transition.
+- **Filename BPM hints misread numbers** - "1984_bpm_120" now reads 120 (all matches are tried, not just the first), "loop_44100_bpm" no longer reads 100 out of a sample rate, and date-like tokens no longer set the meter hint.
+- **Gap filling could accept a gap while under-filling it** - logit-hint matching counted two hints near one grid slot twice; slots are now matched one-to-one (this re-created the exact 0.51x stretch-ratio symptom the interpolator exists to fix).
+- Assorted hardening: take pointer re-validated every poll (stale-take crash after take deletion/switch), detection/download threads are now cooperatively cancellable (closing the window no longer force-kills a thread mid-inference), stretch-marker dedup iterates to a fixpoint, Bars/Project-grid source matching respects the false-positive filter, `interpolateDst` preserves the stretch offset with a single marker, marker drags clamp between neighbors, density-culled beats are no longer invisible drag targets, mel/inference/tempo/meter modules guard degenerate inputs, BPM octave buttons clamp to 20-999, dedup/cache side-maps are pruned with the cache, dead docker window handles are cleared on `WM_DESTROY`, and the Windows floating window now sizes its client area (not the outer frame) to the designed 500x660.
+
+### Added
+- **Time signature dropdown** (Daodan #9, notabot) - "Auto / 2/4 / 3/4 / 4/4 / 6/8 / 9/8 / 12/8" next to BPM. Auto shows the neural meter; picking a meter recomputes downbeats from it (compound meters treat the model's dotted-quarter taps as main beats: 6/8 = 2 per bar). Tempo map insertion converts to REAPER's quarter-note BPM for /8 meters. The override persists per item.
+- **UI scale** (flark, poydepzaj1616) - 100/125/150/200% under the ReaBeat title menu; scales all text, controls and the waveform together. Persisted across sessions.
+- **Cancel button** (Alex S. and every long-file user) - the Detect button turns into Cancel while detection runs; the whole pipeline (file read, inference, refinement, model download) stops cooperatively within a moment. No more waiting out a mis-clicked detection of a 90-minute stem.
+- **Middle-mouse pan + draggable scroll thumb** (Daodan #4) - drag the waveform with the middle button (standard DAW gesture), or grab/click the position bar at the bottom edge to scrub the view when zoomed.
+
+---
+
 ## [2.0.2] - 2026-05-20
 
 Forum feedback round: load failures, long-file crashes, Apply silent failures, UX polish.

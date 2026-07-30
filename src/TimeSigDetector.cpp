@@ -30,12 +30,18 @@ int TimeSigDetector::detect(const std::vector<float>& beats,
     if (counts.empty())
         return 4;
 
-    // Return most common beat count
+    // Return most common beat count. Ties break deterministically toward
+    // 4, then toward the larger count - iterating the unordered_map alone
+    // would make the result depend on hash bucket order (platform/run
+    // dependent for a track with equally many 3- and 4-beat bars).
     int bestCount = 4;
     int bestFreq = 0;
     for (auto& [count, freq] : counts)
     {
-        if (freq > bestFreq)
+        bool better = freq > bestFreq
+            || (freq == bestFreq && count == 4 && bestCount != 4)
+            || (freq == bestFreq && bestCount != 4 && count > bestCount);
+        if (better)
         {
             bestFreq = freq;
             bestCount = count;

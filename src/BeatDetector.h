@@ -40,20 +40,27 @@ public:
 
     // Run detection on mono audio at given sample rate.
     // progressCb: (message, fraction 0-1)
+    // shouldCancel: polled between stages; when it returns true, detection
+    // stops early and the result carries error == kCancelledError.
     DetectionResult detect(const std::vector<float>& audioMono,
                            int sampleRate,
-                           std::function<void(const std::string&, float)> progressCb = nullptr);
+                           std::function<void(const std::string&, float)> progressCb = nullptr,
+                           std::function<bool()> shouldCancel = nullptr);
 
     // Run detection on audio file path.
     DetectionResult detectFile(const std::string& filePath,
-                               std::function<void(const std::string&, float)> progressCb = nullptr);
+                               std::function<void(const std::string&, float)> progressCb = nullptr,
+                               std::function<bool()> shouldCancel = nullptr);
+
+    // error string used when detection was cancelled via shouldCancel
+    static constexpr const char* kCancelledError = "Cancelled";
 
 private:
     // Resample audio to 22050 Hz mono
     std::vector<float> resampleTo22050(const std::vector<float>& audio, int srcRate);
 
-    // Compute confidence from beats and tempo
-    float computeConfidence(const std::vector<float>& beats, float tempo);
+    // Confidence = fraction of inter-beat intervals within 10% of the median
+    float computeConfidence(const std::vector<float>& beats);
 
 #if REABEAT_HAS_ONNX
     std::unique_ptr<Ort::Env> env_;

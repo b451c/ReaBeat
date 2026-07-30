@@ -61,10 +61,15 @@ void WaveformView::setData(const std::vector<float>& peaks,
     lastBeatIdx_ = -1;
     hoveredBeatIdx_ = -1;
     dragBeatIdx_ = -1;
+    dragDownbeatIdx_ = -1;
+    dragIsDownbeat_ = false;
+    potentialDragIdx_ = -1;
+    didDrag_ = false;
     beatsEdited_ = false;
     markerEditMode_ = false;
     hoveredMarkerIdx_ = -1;
     dragMarkerIdx_ = -1;
+    dragStretchPairIdx_ = -1;
     undoStack_.clear();
     redoStack_.clear();
     repaint();
@@ -105,6 +110,13 @@ void WaveformView::clear()
     lastBeatIdx_ = -1;
     hoveredBeatIdx_ = -1;
     dragBeatIdx_ = -1;
+    dragDownbeatIdx_ = -1;
+    dragIsDownbeat_ = false;
+    dragStretchPairIdx_ = -1;
+    potentialDragIdx_ = -1;
+    didDrag_ = false;
+    middlePanning_ = false;
+    scrollbarDragging_ = false;
     beatsEdited_ = false;
     undoStack_.clear();
     redoStack_.clear();
@@ -187,11 +199,24 @@ int WaveformView::findNearestReaperMarker(float x, float maxDistPx) const
 
 void WaveformView::setMarkerEditMode(bool enabled)
 {
+    // Mode can change mid-gesture (Enter triggers Apply during a drag).
+    // An active beat drag must be finalized - clearing the index without
+    // the sort would leave beats_ permanently unsorted, breaking every
+    // lower_bound/upper_bound consumer (rendering, beat crossing).
+    if (dragBeatIdx_ >= 0)
+    {
+        std::sort(beats_.begin(), beats_.end());
+        std::sort(downbeats_.begin(), downbeats_.end());
+        notifyBeatsEdited();
+    }
     markerEditMode_ = enabled;
     hoveredBeatIdx_ = -1;
     hoveredMarkerIdx_ = -1;
     dragBeatIdx_ = -1;
+    dragDownbeatIdx_ = -1;
+    dragIsDownbeat_ = false;
     dragMarkerIdx_ = -1;
+    dragStretchPairIdx_ = -1;
     potentialDragIdx_ = -1;
     repaint();
 }
@@ -213,10 +238,13 @@ bool WaveformView::scrollToNextGap()
     float viewCenter = static_cast<float>(viewStart_ + viewDuration_ * 0.5);
     int startIdx = -1;
 
-    // First pass: find gaps after view center
+    // First pass: find gaps STARTING after the view center. Testing the
+    // gap's end beat instead would re-find the currently-centered gap on
+    // every press (its end is always past the midpoint) and N would never
+    // advance to the next one.
     for (size_t i = 1; i < beats_.size(); ++i)
     {
-        if (beats_[i] <= viewCenter) continue;
+        if (beats_[i - 1] <= viewCenter) continue;
         if (beats_[i] - beats_[i - 1] > thresh)
         { startIdx = static_cast<int>(i); break; }
     }
@@ -288,7 +316,9 @@ double WaveformView::srcTimeToTimeline(double srcTime) const
 
     if (stretchPairs_.size() >= 2)
     {
-        double s = srcTime + takeOffset_;
+        // srcpos and detection time share one coordinate space (both are
+        // source-absolute) - no takeOffset term here
+        double s = srcTime;
 
         // Snap to nearest stretch marker if close.
         // Tolerance = half the minimum marker spacing (always catches nearest
@@ -347,6 +377,36 @@ double WaveformView::srcTimeToTimeline(double srcTime) const
 
     // Fallback: linear
     return itemPos_ + (srcTime - takeOffset_) / playrate_;
+}
+
+double WaveformView::timelineToSrcTime(double timeline) const
+{
+    // Inverse of srcTimeToTimeline - maps a REAPER timeline position back
+    // to source audio time. With stretch markers active the linear inverse
+    // is wrong by the local stretch amount, which made the drawn playhead
+    // (and beat-flash timing) drift off the audio actually playing.
+    double p = (timeline - itemPos_) * playrate_ + takeOffset_;  // pos space
+
+    if (stretchPairs_.size() >= 2)
+    {
+        if (p <= stretchPairs_.front().dst)
+            return stretchPairs_.front().src + (p - stretchPairs_.front().dst);
+        if (p >= stretchPairs_.back().dst)
+            return stretchPairs_.back().src + (p - stretchPairs_.back().dst);
+
+        for (size_t i = 0; i + 1 < stretchPairs_.size(); ++i)
+        {
+            if (p >= stretchPairs_[i].dst && p < stretchPairs_[i + 1].dst)
+            {
+                double dstSpan = stretchPairs_[i + 1].dst - stretchPairs_[i].dst;
+                double frac = (dstSpan > 0) ? (p - stretchPairs_[i].dst) / dstSpan : 0;
+                double srcSpan = stretchPairs_[i + 1].src - stretchPairs_[i].src;
+                return stretchPairs_[i].src + frac * srcSpan;
+            }
+        }
+    }
+
+    return p;  // no markers: pos == source time
 }
 
 void WaveformView::pushUndoState()
@@ -646,6 +706,8 @@ void WaveformView::paint(juce::Graphics& g)
     int visibleBeats = static_cast<int>(std::distance(visStart, visEnd));
     float avgBeatSpacing = visibleBeats > 1 ? w / static_cast<float>(visibleBeats) : w;
     bool showBeats = avgBeatSpacing >= 3.0f;
+    // Hidden lines must not stay drag/click targets - hit-tests check this
+    beatsCulled_ = !showBeats;
 
     if (showBeats)
     {
@@ -826,9 +888,9 @@ void WaveformView::paint(juce::Graphics& g)
 
             float ratio = static_cast<float>(dstGap / srcGap);
 
-            // Convert absolute src positions to display time (relative to take start)
-            float t1 = static_cast<float>(stretchPairs_[i].src - takeOffset_);
-            float t2 = static_cast<float>(stretchPairs_[i + 1].src - takeOffset_);
+            // src positions are already in display (source) time
+            float t1 = static_cast<float>(stretchPairs_[i].src);
+            float t2 = static_cast<float>(stretchPairs_[i + 1].src);
             float x1 = timeToX(t1);
             float x2 = timeToX(t2);
 
@@ -1026,13 +1088,48 @@ void WaveformView::mouseDown(const juce::MouseEvent& e)
 {
     if (!hasData_ || duration_ <= 0) return;
 
+    // A second button press during an active drag (right-click while
+    // left-dragging) would mutate the vectors under the drag indices
+    if (dragBeatIdx_ >= 0 || dragMarkerIdx_ >= 0) return;
+
+    bool isZoomed = viewDuration_ < duration_ - 0.01;
+
+    // Middle-mouse = pan the view (standard DAW gesture). Handled before
+    // any beat/marker interaction; no seek on release.
+    if (e.mods.isMiddleButtonDown())
+    {
+        if (isZoomed)
+        {
+            middlePanning_ = true;
+            navStartX_ = static_cast<float>(e.x);
+            navStartViewStart_ = viewStart_;
+            followPlayhead_ = false;
+        }
+        return;
+    }
+
+    // Scroll thumb drag: bottom strip while zoomed. Checked before the
+    // ruler-seek branch (the thumb lives inside the ruler's zone).
+    if (isZoomed && e.y >= getHeight() - 8)
+    {
+        scrollbarDragging_ = true;
+        followPlayhead_ = false;
+        // Jump so the thumb centers on the click, then drag continues
+        double frac = std::clamp(static_cast<double>(e.x) / getWidth(), 0.0, 1.0);
+        viewStart_ = std::clamp(frac * duration_ - viewDuration_ * 0.5,
+                                0.0, static_cast<double>(duration_) - viewDuration_);
+        navStartX_ = static_cast<float>(e.x);
+        navStartViewStart_ = viewStart_;
+        repaint();
+        return;
+    }
+
     mouseDownX_ = static_cast<float>(e.x);
     mouseDownY_ = static_cast<float>(e.y);
     didDrag_ = false;
     potentialDragIdx_ = -1;
 
     // Ruler area = always seek, never beat interaction
-    bool isZoomed = viewDuration_ < duration_ - 0.01;
     float scrollH = isZoomed ? kScrollH : 0.0f;
     float waveH = static_cast<float>(getHeight()) - kRulerH - scrollH;
 
@@ -1070,7 +1167,7 @@ void WaveformView::mouseDown(const juce::MouseEvent& e)
     // Right-click: delete nearest beat
     if (e.mods.isRightButtonDown())
     {
-        int idx = findNearestBeat(static_cast<float>(e.x), kBeatHitPx);
+        int idx = beatsCulled_ ? -1 : findNearestBeat(static_cast<float>(e.x), kBeatHitPx);
         if (idx >= 0)
         {
             pushUndoState();
@@ -1091,7 +1188,7 @@ void WaveformView::mouseDown(const juce::MouseEvent& e)
     }
 
     // Left click near beat: record as potential drag (actual drag starts after 3px movement)
-    int hit = findNearestBeat(static_cast<float>(e.x), kBeatHitPx);
+    int hit = beatsCulled_ ? -1 : findNearestBeat(static_cast<float>(e.x), kBeatHitPx);
     if (hit >= 0)
         potentialDragIdx_ = hit;
 
@@ -1136,7 +1233,7 @@ void WaveformView::mouseMove(const juce::MouseEvent& e)
         return;
     }
 
-    int newHover = findNearestBeat(static_cast<float>(e.x), kBeatHitPx);
+    int newHover = beatsCulled_ ? -1 : findNearestBeat(static_cast<float>(e.x), kBeatHitPx);
     if (newHover != hoveredBeatIdx_)
     {
         hoveredBeatIdx_ = newHover;
@@ -1149,11 +1246,40 @@ void WaveformView::mouseMove(const juce::MouseEvent& e)
 
 void WaveformView::mouseDrag(const juce::MouseEvent& e)
 {
+    // --- View navigation gestures (middle-mouse pan / scroll thumb) ---
+    if (middlePanning_)
+    {
+        double dx = static_cast<double>(e.x) - navStartX_;
+        viewStart_ = std::clamp(
+            navStartViewStart_ - dx * viewDuration_ / std::max(1, getWidth()),
+            0.0, static_cast<double>(duration_) - viewDuration_);
+        repaint();
+        return;
+    }
+    if (scrollbarDragging_)
+    {
+        double dx = static_cast<double>(e.x) - navStartX_;
+        viewStart_ = std::clamp(
+            navStartViewStart_ + dx / std::max(1, getWidth()) * duration_,
+            0.0, static_cast<double>(duration_) - viewDuration_);
+        repaint();
+        return;
+    }
+
     // --- Marker edit mode: drag REAPER marker ---
     if (markerEditMode_)
     {
         if (potentialDragIdx_ >= 0 && dragMarkerIdx_ < 0)
         {
+            // The marker list can shrink between mouseDown and the 3px
+            // threshold (external REAPER edits force a re-read) - a stale
+            // index would read out of bounds or grab the wrong marker
+            if (potentialDragIdx_ >= static_cast<int>(reaperMarkers_.size()))
+            {
+                potentialDragIdx_ = -1;
+                return;
+            }
+
             float dx = static_cast<float>(e.x) - mouseDownX_;
             if (std::abs(dx) >= 3.0f)
             {
@@ -1163,8 +1289,9 @@ void WaveformView::mouseDrag(const juce::MouseEvent& e)
                 dragMarkerOriginalTime_ = reaperMarkers_[potentialDragIdx_];
 
                 // Find corresponding stretchPair for live ratio updates
+                // (src and display time share one coordinate space)
                 dragStretchPairIdx_ = -1;
-                double absSrc = static_cast<double>(dragMarkerOriginalTime_) + takeOffset_;
+                double absSrc = static_cast<double>(dragMarkerOriginalTime_);
                 for (int j = 0; j < static_cast<int>(stretchPairs_.size()); ++j)
                 {
                     if (std::abs(stretchPairs_[j].src - absSrc) < 0.005)
@@ -1179,15 +1306,26 @@ void WaveformView::mouseDrag(const juce::MouseEvent& e)
 
         if (dragMarkerIdx_ >= 0 && dragMarkerIdx_ < static_cast<int>(reaperMarkers_.size()))
         {
+            // Clamp between neighboring markers (REAPER constrains the
+            // actual marker the same way) so reaperMarkers_/stretchPairs_
+            // stay sorted - srcTimeToTimeline relies on sorted src
+            double lo = 0.0;
+            double hi = static_cast<double>(duration_);
+            if (dragMarkerIdx_ > 0)
+                lo = static_cast<double>(reaperMarkers_[dragMarkerIdx_ - 1]) + 0.005;
+            if (dragMarkerIdx_ + 1 < static_cast<int>(reaperMarkers_.size()))
+                hi = static_cast<double>(reaperMarkers_[dragMarkerIdx_ + 1]) - 0.005;
+            if (hi < lo) hi = lo;
+
             float newTime = static_cast<float>(
-                std::clamp(xToTime(static_cast<float>(e.x)), 0.0, static_cast<double>(duration_)));
+                std::clamp(xToTime(static_cast<float>(e.x)), lo, hi));
             reaperMarkers_[dragMarkerIdx_] = newTime;
 
             // Update stretchPair so ratio labels reflect the drag in real-time
             if (dragStretchPairIdx_ >= 0 && dragStretchPairIdx_ < static_cast<int>(stretchPairs_.size()))
             {
-                double newSrc = static_cast<double>(newTime) + takeOffset_;
-                double origSrc = static_cast<double>(dragMarkerOriginalTime_) + takeOffset_;
+                double newSrc = static_cast<double>(newTime);
+                double origSrc = static_cast<double>(dragMarkerOriginalTime_);
                 stretchPairs_[dragStretchPairIdx_].src = newSrc;
                 stretchPairs_[dragStretchPairIdx_].dst = dragStretchPairOrigDst_ + (newSrc - origSrc);
             }
@@ -1202,6 +1340,14 @@ void WaveformView::mouseDrag(const juce::MouseEvent& e)
     // Start drag only after 3px movement threshold
     if (potentialDragIdx_ >= 0 && dragBeatIdx_ < 0)
     {
+        // beats_ can shrink between mouseDown and the threshold (Cmd+Z or
+        // an async setData work mid-hold) - validate the stale index
+        if (potentialDragIdx_ >= static_cast<int>(beats_.size()))
+        {
+            potentialDragIdx_ = -1;
+            return;
+        }
+
         float dx = static_cast<float>(e.x) - mouseDownX_;
         if (std::abs(dx) >= 3.0f)
         {
@@ -1242,24 +1388,38 @@ void WaveformView::mouseDrag(const juce::MouseEvent& e)
 
 void WaveformView::mouseUp(const juce::MouseEvent& e)
 {
+    // View-navigation gestures end here - no seek, no beat interaction
+    // (mouseDownX_ was never set for them, a seek would use a stale value)
+    if (middlePanning_ || scrollbarDragging_)
+    {
+        middlePanning_ = false;
+        scrollbarDragging_ = false;
+        return;
+    }
+
     // --- Marker edit mode ---
     if (markerEditMode_)
     {
         if (dragMarkerIdx_ >= 0)
         {
-            float newTime = reaperMarkers_[dragMarkerIdx_];
-            if (onMarkerMove && std::abs(newTime - dragMarkerOriginalTime_) > 0.001f)
+            // The marker list may have been replaced/shrunk mid-drag by an
+            // external re-read - only commit when the index is still valid
+            if (dragMarkerIdx_ < static_cast<int>(reaperMarkers_.size()))
             {
-                onMarkerMove(dragMarkerOriginalTime_, newTime);
-            }
-            else
-            {
-                // Snap back: restore both display position and stretchPair
-                reaperMarkers_[dragMarkerIdx_] = dragMarkerOriginalTime_;
-                if (dragStretchPairIdx_ >= 0 && dragStretchPairIdx_ < static_cast<int>(stretchPairs_.size()))
+                float newTime = reaperMarkers_[dragMarkerIdx_];
+                if (onMarkerMove && std::abs(newTime - dragMarkerOriginalTime_) > 0.001f)
                 {
-                    stretchPairs_[dragStretchPairIdx_].src = static_cast<double>(dragMarkerOriginalTime_) + takeOffset_;
-                    stretchPairs_[dragStretchPairIdx_].dst = dragStretchPairOrigDst_;
+                    onMarkerMove(dragMarkerOriginalTime_, newTime);
+                }
+                else
+                {
+                    // Snap back: restore both display position and stretchPair
+                    reaperMarkers_[dragMarkerIdx_] = dragMarkerOriginalTime_;
+                    if (dragStretchPairIdx_ >= 0 && dragStretchPairIdx_ < static_cast<int>(stretchPairs_.size()))
+                    {
+                        stretchPairs_[dragStretchPairIdx_].src = static_cast<double>(dragMarkerOriginalTime_);
+                        stretchPairs_[dragStretchPairIdx_].dst = dragStretchPairOrigDst_;
+                    }
                 }
             }
 
@@ -1312,6 +1472,18 @@ void WaveformView::mouseDoubleClick(const juce::MouseEvent& e)
 {
     if (!hasData_) return;
 
+    // Middle-button double press is part of pan gesturing, never an edit
+    if (e.mods.isMiddleButtonDown()) return;
+
+    // Ruler/scrollbar zone is a guaranteed-safe seek area - rapid clicks
+    // there must never insert a beat or a real REAPER stretch marker
+    {
+        bool isZoomed = viewDuration_ < duration_ - 0.01;
+        float scrollH = isZoomed ? kScrollH : 0.0f;
+        float waveH = static_cast<float>(getHeight()) - kRulerH - scrollH;
+        if (e.y >= static_cast<int>(waveH)) return;
+    }
+
     // --- Marker edit mode ---
     if (markerEditMode_)
     {
@@ -1342,7 +1514,7 @@ void WaveformView::mouseDoubleClick(const juce::MouseEvent& e)
     dragDownbeatIdx_ = -1;
     dragIsDownbeat_ = false;
 
-    int hit = findNearestBeat(static_cast<float>(e.x), kBeatHitPx);
+    int hit = beatsCulled_ ? -1 : findNearestBeat(static_cast<float>(e.x), kBeatHitPx);
     if (hit >= 0)
     {
         // Double-click existing beat: toggle downbeat status
@@ -1369,9 +1541,11 @@ void WaveformView::mouseDoubleClick(const juce::MouseEvent& e)
     float newTime = snapToPeak(static_cast<float>(xToTime(static_cast<float>(e.x))));
     if (newTime < 0 || newTime > duration_) return;
 
-    // Skip if too close to existing beat (< 20ms)
+    // Skip if too close to existing beat. 25ms matches the beat<->downbeat
+    // association tolerance used everywhere else - allowing 20-25ms spacing
+    // would let deleting one beat demote its neighbor's downbeat status.
     for (float bt : beats_)
-        if (std::abs(bt - newTime) < 0.020f) return;
+        if (std::abs(bt - newTime) < 0.025f) return;
 
     pushUndoState();
     grabKeyboardFocus();
@@ -1423,6 +1597,8 @@ void WaveformView::mouseWheelMove(const juce::MouseEvent& e,
     double newDur = viewDuration_ * factor;
     double minView = std::max(kMinViewSec,
         50.0 / static_cast<double>(peaks_.size()) * static_cast<double>(duration_));
+    // Items shorter than minView would make clamp's lo > hi (UB)
+    minView = std::min(minView, static_cast<double>(duration_));
     newDur = std::clamp(newDur, minView, static_cast<double>(duration_));
 
     // Keep zoom center at same pixel position
@@ -1448,10 +1624,21 @@ void WaveformView::timerCallback()
     if (!hasData_ || !GetPlayState || !GetPlayPosition) return;
 
     int state = GetPlayState();
-    if (state & 1)
+    bool playing = (state & 1) != 0;
+
+    // Re-enable auto-follow only on the stop->play transition. Doing it
+    // whenever lastBeatIdx_ == -1 re-forced follow every tick while the
+    // playhead was before the first beat, overriding manual scrolling.
+    if (playing && !wasPlaying_)
+        followPlayhead_ = true;
+    wasPlaying_ = playing;
+
+    if (playing)
     {
         double playPos = GetPlayPosition();
-        float srcPos = static_cast<float>((playPos - itemPos_) * playrate_ + takeOffset_);
+        // Map through the stretch markers - the linear formula is off by
+        // the local stretch amount when markers are active
+        float srcPos = static_cast<float>(timelineToSrcTime(playPos));
 
         if (srcPos != playheadPos_)
         {
@@ -1462,8 +1649,6 @@ void WaveformView::timerCallback()
 
                 if (lastBeatIdx_ == -1)
                 {
-                    // Playback just started - re-enable follow
-                    followPlayhead_ = true;
                     lastBeatIdx_ = cur;
                 }
                 else if (cur > lastBeatIdx_)

@@ -7,7 +7,10 @@ static constexpr float kPi = 3.14159265358979323846f;
 
 float TempoEstimator::octaveCorrect(float bpm)
 {
-    if (bpm <= 0.0f)
+    // Non-finite input would loop forever (inf/2 == inf) or pass NaN
+    // straight through - unreachable from the internal pipeline but this
+    // is a public entry point
+    if (bpm <= 0.0f || !std::isfinite(bpm))
         return kFallbackBpm;
 
     while (bpm < kMinBpm)

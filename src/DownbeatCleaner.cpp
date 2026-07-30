@@ -24,10 +24,17 @@ std::vector<float> DownbeatCleaner::clean(const std::vector<float>& rawDownbeats
 
     // Choose reference interval
     float refInterval;
-    if (std::abs(medianInterval - expectedBar) / expectedBar < kRefTolerance)
+    if (expectedBar > 0
+        && std::abs(medianInterval - expectedBar) / expectedBar < kRefTolerance)
         refInterval = expectedBar;  // median close to expected - use expected
     else
         refInterval = medianInterval;  // use measured median
+
+    // Degenerate input (duplicate downbeats -> zero median, or non-positive
+    // tempo from a non-pipeline caller): division below would produce inf
+    // and the float->int cast of it is undefined behavior
+    if (refInterval <= 0 || !std::isfinite(refInterval))
+        return {rawDownbeats.begin(), rawDownbeats.end()};
 
     // Filter and fill gaps
     std::vector<float> cleaned;

@@ -20,10 +20,14 @@ public:
 
     // Download model from URL with progress callback.
     // progressCb: (fraction 0-1)
+    // shouldCancel: polled per chunk; abort + clean up when it returns true.
     // Returns true on success.
-    static bool downloadModel(std::function<void(float)> progressCb = nullptr);
+    static bool downloadModel(std::function<void(float)> progressCb = nullptr,
+                              std::function<bool()> shouldCancel = nullptr);
 
-    // Expected SHA-256 of the model (first 16 chars for quick check)
+    // Model file identity check is by name + plausible size range only
+    // (the real model is ~79 MB; anything outside this range is treated
+    // as corrupt/truncated and ignored or deleted).
     static constexpr const char* kModelFilename = "beat_this_final0.onnx";
     static constexpr size_t kExpectedSizeMin = 70'000'000;   // ~70MB minimum
     static constexpr size_t kExpectedSizeMax = 100'000'000;  // ~100MB maximum

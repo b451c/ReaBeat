@@ -101,6 +101,12 @@ std::vector<std::vector<float>> MelSpectrogram::compute(const std::vector<float>
     constexpr int nFreqs = kNfft / 2 + 1;
     int padSize = kNfft / 2;
 
+    // Reflect padding needs padSize+1 samples - shorter input would index
+    // out of bounds in the mirror loops below (the numFrames guard sits
+    // after them and cannot prevent it)
+    if (static_cast<int>(audio.size()) <= padSize)
+        return {};
+
     // Reflect padding (center=True, pad_mode="reflect")
     std::vector<float> padded;
     padded.reserve(audio.size() + 2 * padSize);

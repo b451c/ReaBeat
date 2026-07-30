@@ -26,9 +26,15 @@ static void preloadOnnxRuntime()
         GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
         GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
         (LPCWSTR)&preloadOnnxRuntime, &hSelf);
+    // Without a valid module handle GetModuleFileNameW would return
+    // REAPER.exe's path and we'd silently preload from the wrong directory
+    // (reintroducing the System32 DLL problem)
+    if (!hSelf)
+        return;
 
     wchar_t dllDir[MAX_PATH] = {};
-    GetModuleFileNameW(hSelf, dllDir, MAX_PATH);
+    if (GetModuleFileNameW(hSelf, dllDir, MAX_PATH) == 0)
+        return;
     PathRemoveFileSpecW(dllDir);
 
     wchar_t ortPath[MAX_PATH] = {};
@@ -52,7 +58,14 @@ static bool g_juceInitialised = false;
 
 static void juceMessagePump()
 {
-    if (g_juceInitialised)
+    // Pump ONLY while the plugin window exists and is visible.
+    // runDispatchLoopUntil pulls messages from the whole thread queue, so
+    // on Windows it can dispatch REAPER's own keyboard events past
+    // REAPER's accelerator handling (keys like Space/Esc/F3 appear to need
+    // several presses). Running unconditionally meant this kept happening
+    // forever after the window was closed - now the pump stops with the
+    // window and queued JUCE messages are delivered on next open.
+    if (g_juceInitialised && g_window && g_window->isVisible())
         juce::MessageManager::getInstance()->runDispatchLoopUntil(2);
 }
 
@@ -78,6 +91,7 @@ static bool onAction(int command, int)
         {
             content->onToggleDock = []() { if (g_window) g_window->toggleDock(); };
             content->onIsDocked = []() -> bool { return g_window && g_window->isDocked(); };
+            content->onUiScaleChanged = []() { if (g_window) g_window->relayoutContent(); };
         }
         return true;
     }
@@ -140,13 +154,14 @@ REAPER_PLUGIN_DLL_EXPORT int ReaperPluginEntry(
     preloadOnnxRuntime();
 #endif
 
-    // Register timer for JUCE message pump (always running, lightweight when JUCE not init)
-    rec->Register("timer", (void*)(void(*)())juceMessagePump);
-
-    // Register toggle action
+    // Register toggle action FIRST - bailing out after a timer registration
+    // would leave REAPER calling into a DLL that reported failed load
     g_cmdToggle = rec->Register("command_id", (void*)"ReaBeat_ShowWindow");
     if (!g_cmdToggle)
         return 0;
+
+    // Register timer for JUCE message pump (no-op while window hidden)
+    rec->Register("timer", (void*)(void(*)())juceMessagePump);
 
     static gaccel_register_t accel = {{0, 0, 0}, "ReaBeat: Show/Hide Window"};
     accel.accel.cmd = static_cast<unsigned short>(g_cmdToggle);

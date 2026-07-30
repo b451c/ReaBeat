@@ -2,7 +2,25 @@
 
 Tracking deferred fixes and feature requests by user/source. Anything actionable lives here so it doesn't fall out of memory between sessions.
 
-Updated: 2026-05-20
+Updated: 2026-07-31
+
+## Done in v2.0.3 (unreleased — full audit round, see CHANGELOG)
+
+- Daodan #4 — middle-mouse pan + draggable/clickable scroll thumb
+- Cancel button during detection (cooperative cancellation runs through the whole pipeline)
+- Daodan #9 + notabot — manual time signature dropdown (Auto/2/4/3/4/4/4/6/8/9/8/12/8)
+- flark + poydepzaj1616 — UI scale 100-200% (title menu, persisted)
+- poydepzaj1616 — keyboard hijack: JUCE message pump now gated on window visibility
+- bobo198504 — Unicode home dir fix (MultiByteToWideChar) shipped
+- Model download corruption class (append-to-partial, truncation passing validation, portable shadowing)
+- takeOffset/srcpos convention fix (stretch markers on trimmed items) — NEEDS E2E TEST with slip-edited item before release
+- Confidence vs octave-corrected tempo, tempo-map measure-per-beat, matchTempo length/dialog, sync effective BPM, OOM guards, drag OOB safety, N key, ruler double-click, playhead warp — full list in CHANGELOG
+
+## Model research (2026-07-30)
+
+No practically-available model beats beat_this final0. BeatFM (arXiv 2508.09790, ICME 2025: +0.6 beat F1 / +4.1 downbeat F1 on GTZAN vs Beat This trained WITHOUT its extra data) and HingeNet (2508.09788) have NO public code/checkpoints and need 250M+ param foundation models (MERT/MusicFM) + DBN — impractical for CPU plugin. Watch for code releases.
+
+**Ensemble final0+1+2 ("High accuracy" mode): REJECTED 2026-07-31** (user decision) — expected ~+0.3-0.5% F1 does not justify 3x inference time, +158 MB model downloads, and a 3-model ModelManager/InferenceProcessor rework. Revisit only if a future model change re-opens the accuracy conversation.
 
 ---
 
@@ -33,17 +51,9 @@ Keep the last selected item visible in `updateSelectedItem` when count drops to 
 - Mark detected_ as "stale" (different colour) when deselected, refresh on next select
 
 ### Daodan #9 + notabot - Manual time signature dropdown
-**Source:** Daodan post #2, notabot post #43 (6/8 misdetected as 4/4)
-**Effort:** ~2-3h
-**Risk:** MEDIUM (algorithm-touching)
-**Status:** Deferred from v2.0.2
-
-Dropdown "Time signature: Auto / 2/4 / 3/4 / 4/4 / 6/8 / 9/8 / 12/8" that overrides `detection_.timeSigNum` and `timeSigDenom`. When user changes it after detection, recompute downbeats from the new meter.
-
-- `MainComponent` - add `juce::ComboBox timeSigCombo`
-- On change: re-run `DownbeatCleaner::clean` with new num, repaint waveform
-- For compound meters (6/8, 9/8, 12/8) treat each "main" beat as group of 3 eighth notes
-- Persist user override per-item alongside cache
+**Status:** DONE in v2.0.3 (see top of file). Remaining nice-to-have: persist the
+pre-override neural downbeats per item so Auto can restore them after an
+item switch (currently Auto after restore returns the overridden bars).
 
 ---
 
@@ -104,6 +114,11 @@ Also audit `ModelManager` paths - JUCE's `String::toStdString()` returns UTF-8 b
 
 Trigger hotfix if bobo confirms v2.0.2 download succeeds but plugin still doesn't load.
 
+**UPDATE 2026-07-31:** Both suspected causes are fixed in v2.0.3 - the
+MultiByteToWideChar conversion shipped in `BeatDetector::loadModel`, and the
+download-corruption class (append-to-partial `.part` handling) is fixed in
+`ModelManager`. Awaiting bobo's retest once v2.0.3 is released.
+
 ### reaperfreaker - Debian Trixie not loading
 **Source:** Forum post #6
 **Status:** Awaiting diagnostics
@@ -136,22 +151,16 @@ To enable Mojave:
 Effort: ~30 min. Risk: LOW (worst case we revert to 10.15). Trigger if reaperfreaker confirms he still uses Mojave.
 
 ### flark - Font size adjustment
-**Source:** Forum post #32 (Linux user, "getting old")
-**Status:** Open, no specific plan
-
-User wants larger text in the plugin UI. Currently sizes are hardcoded throughout `MainComponent.cpp` and `WaveformView.cpp`.
-
-Options:
-- DPI scaling already partially handled by JUCE - audit and fix any hardcoded font sizes
-- Add a "UI scale" combo in plugin (1.0x / 1.25x / 1.5x / 2.0x)
-- Multiply all `juce::FontOptions(N.0f)` calls through a single scale factor
-
-Effort: ~2-3h. Risk: MEDIUM (visual regressions possible). Probably v2.0.4+ once we have a feel for who else wants it.
+**Status:** DONE in v2.0.3 - UI scale 100/125/150/200% via `setTransform` on
+MainComponent (title menu > UI scale), persisted in ExtState "ReaBeat/uiscale".
 
 ---
 
 ## Long-term ideas
 
+- **getProjectBpm ignores the tempo map** - `GetProjectTimeSignature2` "does not reflect tempo envelopes" (SDK), so the Match-to-Project default target and the Project-grid mismatch warning report the wrong tempo whenever the project has a tempo map (including one ReaBeat inserted). Fix: `TimeMap_GetDividedBpmAtTime` at the item position. Deferred from the 2026-07 audit (needs API availability check + behavior decision).
+- **Exception-safe undo blocks** - Undo_BeginBlock/EndBlock pairs are not RAII; a bad_alloc between them leaks an open undo block. Low practical risk, noted in audit.
+- **"Set session" with compound meter** - sets the dotted-quarter BPM as session tempo while the sig is /8; should scale by 1.5 like the tempo map path does.
 - **C++ unit tests** - none exist today. At minimum: MelSpectrogram numerical regression test vs Python output, BeatInterpolator gap-fill logic, ReaperActions stretch marker construction (without actually calling REAPER API).
 - **Cancel button during detection** - reuse "Detect Beats" as "Cancel" while detecting. Pattern from reamix.me_native: `alive_` shared atomic + `threadShouldExit()` between stages.
 - **Free `mono` buffer after resample** - release ~900 MB on long files. Requires changing detect() signature to take rvalue ref or moving the call site.

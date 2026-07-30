@@ -73,50 +73,43 @@ std::vector<float> BeatInterpolator::interpolate(
                 }
             }
 
-            // Check if hints fall at approximately expected positions
+            // Check if hints fall at approximately expected positions.
+            // Each expected slot gets its NEAREST unused hint, and acceptance
+            // counts DISTINCT slots - the earlier logic counted two hints
+            // near one slot twice, accepted the gap, then emitted fewer
+            // beats than expected, leaving an under-filled gap flagged as
+            // handled (the exact 0.51x-ratio symptom this module fixes).
             if (static_cast<int>(hints.size()) >= nExpected - 1)
             {
-                // Verify hints are roughly evenly spaced
-                float expectedSpacing = gap / static_cast<float>(nExpected);
-                int used = 0;
+                std::vector<int> slotHint(static_cast<size_t>(nExpected), -1);
+                std::vector<bool> hintUsed(hints.size(), false);
+                int hinted = 0;
 
-                for (float hint : hints)
+                for (int e = 1; e < nExpected; ++e)
                 {
-                    // Check if this hint is near an expected position
-                    float relPos = (hint - beats[i - 1]) / gap;
-                    bool matchesExpected = false;
-                    for (int e = 1; e < nExpected; ++e)
+                    float expectedRel = static_cast<float>(e) / static_cast<float>(nExpected);
+                    int best = -1;
+                    float bestDist = kPositionTolerance;
+                    for (size_t h = 0; h < hints.size(); ++h)
                     {
-                        float expectedRel = static_cast<float>(e) / static_cast<float>(nExpected);
-                        if (std::abs(relPos - expectedRel) < kPositionTolerance)
-                        {
-                            matchesExpected = true;
-                            break;
-                        }
+                        if (hintUsed[h]) continue;
+                        float relPos = (hints[h] - beats[i - 1]) / gap;
+                        float d = std::abs(relPos - expectedRel);
+                        if (d < bestDist) { bestDist = d; best = static_cast<int>(h); }
                     }
-                    if (matchesExpected)
-                        ++used;
+                    if (best >= 0)
+                    {
+                        slotHint[static_cast<size_t>(e)] = best;
+                        hintUsed[static_cast<size_t>(best)] = true;
+                        ++hinted;
+                    }
                 }
 
-                if (used >= nExpected - 1)
+                if (hinted >= nExpected - 1)
                 {
-                    // Use the best-matching hints — one hint per expected slot
-                    std::vector<bool> filled(nExpected, false);
-                    for (float hint : hints)
-                    {
-                        float relPos = (hint - beats[i - 1]) / gap;
-                        for (int e = 1; e < nExpected; ++e)
-                        {
-                            if (filled[e]) continue;
-                            float expectedRel = static_cast<float>(e) / static_cast<float>(nExpected);
-                            if (std::abs(relPos - expectedRel) < kPositionTolerance)
-                            {
-                                result.push_back(hint);
-                                filled[e] = true;
-                                break;
-                            }
-                        }
-                    }
+                    // Every slot has a hint - use them
+                    for (int e = 1; e < nExpected; ++e)
+                        result.push_back(hints[static_cast<size_t>(slotHint[static_cast<size_t>(e)])]);
                     usedLogits = true;
                 }
             }

@@ -1,0 +1,104 @@
+{
+  "subject": {
+    "path": "build/reaper_reabeat-arm64.dylib",
+    "note": "native extension, v2.0.3 audit round"
+  },
+  "mode": "auto",
+  "features": [
+    {
+      "id": "F1",
+      "name": "Window toggle action _ReaBeat_ShowWindow",
+      "evidence": "src/main.cpp:onAction / DockableWindow::toggleVisibility",
+      "oracle": "state (JS_Window_Find + JS_Window_IsVisible via bridge)",
+      "status": "covered",
+      "tests": [
+        "test_reabeat_e2e.py::test_f1_window_toggle"
+      ],
+      "kind": "action"
+    },
+    {
+      "id": "F2",
+      "name": "REAPER keyboard ownership while ReaBeat window closed (pump gated)",
+      "evidence": "src/main.cpp:juceMessagePump (gated on isVisible, v2.0.3)",
+      "oracle": "interaction (CGEvent Space) + state (GetPlayState)",
+      "status": "covered",
+      "intent": "assumed",
+      "assumption": "macOS cannot reproduce the original Windows accelerator-bypass symptom; the spec guards the invariant 'REAPER receives keys while the window is hidden', which the ungated pump put at risk.",
+      "tests": [
+        "test_reabeat_e2e.py::test_f2_keyboard_with_window_closed"
+      ],
+      "kind": "ui"
+    },
+    {
+      "id": "F3",
+      "name": "Stretch marker srcpos is SOURCE-ABSOLUTE on trimmed items (C1 fix)",
+      "evidence": "src/ReaperActions.cpp insertStretchMarkers (no + takeOffset, v2.0.3); detection reads source file from 0 (BeatDetector::detectFile)",
+      "oracle": "state (GetTakeStretchMarker srcpos vs synthetic click grid), mutation-verified (+D_STARTOFFS shift must turn red)",
+      "status": "covered",
+      "tests": [
+        "test_reabeat_e2e.py::test_f3_srcpos_convention_on_trimmed_item"
+      ],
+      "kind": "state"
+    },
+    {
+      "id": "F4",
+      "name": "Tempo map markers restricted to the item range (constant mode)",
+      "evidence": "src/ReaperActions.cpp insertTempoMap clearFrom/clearTo clip (v2.0.3)",
+      "oracle": "state (GetTempoTimeSigMarker positions/bpm)",
+      "status": "covered",
+      "intent": "assumed",
+      "assumption": "Only constant mode is drivable without opening a SWELL combo dropdown; variable modes untestable via UI (see F8).",
+      "tests": [
+        "test_reabeat_e2e.py::test_f4_tempomap_constant_in_range"
+      ],
+      "kind": "state"
+    },
+    {
+      "id": "F5",
+      "name": "Detection GUID guard: result never attaches to a different item",
+      "evidence": "src/MainComponent.cpp onDetectionComplete(forGuid) (v2.0.3)",
+      "oracle": "state (item B untouched: 0 markers, playrate 1.0; A's cache restores and applies without re-detect)",
+      "status": "covered",
+      "tests": [
+        "test_reabeat_e2e.py::test_f5_guid_guard"
+      ],
+      "kind": "state"
+    },
+    {
+      "id": "F6",
+      "name": "Model download corruption handling (.part + Content-Length)",
+      "evidence": "src/ModelManager.cpp downloadModel (v2.0.3)",
+      "oracle": null,
+      "status": "untestable",
+      "reason": "Would need a controlled HTTP endpoint + a way to kill the download mid-flight inside the isolated instance; the model is already cached in ~/.reabeat so the download path never runs here. Candidate for a future seam (env override of the download URL).",
+      "kind": "io"
+    },
+    {
+      "id": "F7",
+      "name": "Time signature dropdown override (6/8 etc.)",
+      "evidence": "src/MainComponent.cpp applyTimeSigSelection (v2.0.3)",
+      "oracle": null,
+      "status": "untestable",
+      "reason": "JUCE ComboBox popup is its own transient window; item selection via synthesized input is not reliably targetable (no stable coordinates). Downbeat recomputation is internal state with no REAPER-side readback until Apply. Needs a gated test seam or visual goldens.",
+      "kind": "ui"
+    },
+    {
+      "id": "F8",
+      "name": "Tempo map variable modes / quantize modes / strength slider",
+      "evidence": "src/ReaperActions.cpp modes 2-4; MainComponent combos",
+      "oracle": null,
+      "status": "untestable",
+      "reason": "Same SWELL/JUCE dropdown limitation as F7. Constant mode covered by F4; Straight quantize is the default and is what F3 exercises.",
+      "kind": "ui"
+    },
+    {
+      "id": "F9",
+      "name": "UI scale 100-200% (setTransform)",
+      "evidence": "src/MainComponent.cpp setUiScale (v2.0.3)",
+      "oracle": null,
+      "status": "untestable",
+      "reason": "Trigger lives in a popup menu (title click) - menu item coordinates are OS-drawn and version-dependent. Would need visual goldens + menu automation; deferred.",
+      "kind": "ui"
+    }
+  ]
+}

@@ -25,7 +25,8 @@ REAPER has no built-in beat detection. ReaBeat adds it as a native extension: on
 ### Detection
 - **Neural beat detection** - beat-this model (ISMIR 2024, state-of-the-art accuracy)
 - **Automatic downbeat detection** - neural downbeats, not naive every-4th-beat
-- **Time signature detection** - from downbeat spacing (2/4 through 7/4)
+- **Time signature** - detected from downbeat spacing, plus a manual override dropdown (Auto / 2/4 / 3/4 / 4/4 / 6/8 / 9/8 / 12/8) that recomputes bars - use it when compound meters get detected as 4/4
+- **Cancellable** - the Detect button turns into Cancel while detection runs
 - **BPM from filename** - parses "120bpm" patterns, shows hint if different from detected
 - **Per-item cache** - switch items without re-detecting, shows "(cached)"
 
@@ -43,8 +44,9 @@ REAPER has no built-in beat detection. ReaBeat adds it as a native extension: on
 - **Marker editing** - after Apply, edit individual stretch markers directly in REAPER
 - **Gap highlighting** - red tint over missing-beat regions with teal suggestion lines at the strongest transients; an on-canvas hint shows the **N** shortcut to jump to the next gap
 - **Seek** - click waveform to set REAPER cursor (accounts for stretch markers)
-- **Zoom/scroll** - mouse wheel, shift+scroll, trackpad swipe
+- **Zoom/scroll** - mouse wheel zoom, shift+scroll / trackpad swipe / middle-mouse drag to pan, clickable+draggable scroll thumb at the bottom edge
 - **Playhead tracking** - auto-follow during playback
+- **UI scale** - 100/125/150/200% (click the ReaBeat title), persisted across sessions
 
 ### Multi-Track Sync
 - Select reference item from "Match to:" dropdown
@@ -67,8 +69,11 @@ REAPER has no built-in beat detection. ReaBeat adds it as a native extension: on
 | Next gap | N |
 | Undo | Cmd+Z / Ctrl+Z |
 | Redo | Cmd+Shift+Z / Ctrl+Shift+Z |
+| Pan waveform | Middle-mouse drag / Shift+scroll |
 
 ## Installation
+
+**Requirements:** REAPER 7.0 or newer is recommended. On older REAPER versions the extension may silently fail to load (the extension API version won't match) — if ReaBeat doesn't appear in the Extensions menu after installing, update REAPER first.
 
 ### ReaPack (recommended)
 

@@ -69,6 +69,15 @@ public:
     bool isMarkerEditMode() const { return markerEditMode_; }
     bool isDraggingMarker() const { return dragMarkerIdx_ >= 0; }
 
+    // True from mouseDown near a beat/marker until mouseUp - includes the
+    // pre-threshold phase before a drag commits. External marker re-reads
+    // must be deferred while this is true, or the pending drag index goes
+    // stale against a replaced vector (out-of-bounds on drag start).
+    bool isMouseGestureActive() const
+    {
+        return dragMarkerIdx_ >= 0 || dragBeatIdx_ >= 0 || potentialDragIdx_ >= 0;
+    }
+
     void paint(juce::Graphics& g) override;
     void mouseDown(const juce::MouseEvent& e) override;
     void mouseMove(const juce::MouseEvent& e) override;
@@ -103,6 +112,8 @@ private:
     double viewStart_ = 0.0;
     double viewDuration_ = 0.0;
     bool followPlayhead_ = true;  // auto-scroll to keep playhead visible
+    bool wasPlaying_ = false;     // for play-start edge detection
+    bool beatsCulled_ = false;    // paint hid beat lines (too dense) - block hit-tests
 
     // Beat interaction (beat mode)
     int hoveredBeatIdx_ = -1;
@@ -135,6 +146,12 @@ private:
     float mouseDownY_ = 0;
     bool didDrag_ = false;
 
+    // View navigation gestures (middle-mouse pan, scrollbar thumb drag)
+    bool middlePanning_ = false;
+    bool scrollbarDragging_ = false;
+    float navStartX_ = 0;
+    double navStartViewStart_ = 0;
+
     // Undo/redo for beat edits
     struct BeatSnapshot { std::vector<float> beats, downbeats; };
     std::vector<BeatSnapshot> undoStack_;
@@ -149,6 +166,7 @@ private:
     bool isBeatDownbeat(int beatIdx) const;
     void notifyBeatsEdited();
     double srcTimeToTimeline(double srcTime) const; // accounts for stretch markers
+    double timelineToSrcTime(double timeline) const; // inverse (playhead)
     int findNearestReaperMarker(float x, float maxDistPx = 8.0f) const;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(WaveformView)
