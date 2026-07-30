@@ -17,7 +17,7 @@ State-of-the-art beat detection powered by beat-this (CPJKU, ISMIR 2024).\line
 \bullet  Per-item detection cache\line
 \line
 \b Requirements:\b0\line
-\bullet  REAPER 6.0+\line
+\bullet  REAPER 7.0+\line
 \bullet  Internet connection for first-time model download (~79MB)\line
 \line
 \b Note:\b0  On first detection, ReaBeat downloads the neural network model to ~/.reabeat/models/. This happens once.\line
@@ -101,6 +101,39 @@ Changed:
         <source platform="linux64" file="libonnxruntime.so.1">https://github.com/b451c/ReaBeat/releases/download/v2.0.2/libonnxruntime.so.1-Linux-x86_64</source>
         <source platform="linux-aarch64" file="reaper_reabeat-aarch64.so">https://github.com/b451c/ReaBeat/releases/download/v2.0.2/reaper_reabeat-aarch64.so</source>
         <source platform="linux-aarch64" file="libonnxruntime.so.1">https://github.com/b451c/ReaBeat/releases/download/v2.0.2/libonnxruntime.so.1-Linux-aarch64</source>
+      </version>
+      <version name="2.0.3" author="b451c" time="2026-07-31T00:00:00Z">
+        <changelog><![CDATA[ReaBeat 2.0.3 - Full-code audit round: 36 fixes, 4 features
+
+Added:
+- Time signature dropdown (Auto / 2/4 / 3/4 / 4/4 / 6/8 / 9/8 / 12/8) - manual override recomputes bars, persists per item
+- UI scale 100/125/150/200% (click the ReaBeat title), persisted
+- Cancel button - Detect turns into Cancel while detection runs
+- Middle-mouse pan + clickable/draggable scroll thumb
+
+Fixed:
+- Stretch markers land exactly on transients on trimmed/slip-edited items (all modes + multi-track sync now share one coordinate convention)
+- REAPER shortcuts (Space/Esc/F3) needing several presses, persisting after closing the window (poydepzaj1616) - message pump now runs only while the window is visible
+- Model load with non-ASCII Windows user folders (bobo198504) + interrupted downloads can no longer leave a corrupt model that passes validation
+- Detection results always attach to the item they were started on; caching survives selection changes
+- Confidence measured against actual beat spacing (slow tracks no longer show 0%)
+- Variable-beats tempo map no longer starts a measure on every beat; markers clipped to the item range
+- Match Tempo preserves trimmed item length; extreme ratios report via status bar
+- N key advances to the NEXT gap; ruler double-clicks no longer insert markers; playhead follows stretched audio exactly
+- Out-of-memory on very long files reported instead of crashing REAPER
+- Manual beat edits survive deselection; many more hardening fixes (see CHANGELOG)
+
+Requires REAPER 7.0+. Verified by an automated E2E suite driving a real REAPER (tests/reaproof in the repo).]]></changelog>
+        <source platform="darwin-arm64" file="reaper_reabeat-arm64.dylib">https://github.com/b451c/ReaBeat/releases/download/v2.0.3/reaper_reabeat-arm64.dylib</source>
+        <source platform="darwin-arm64" file="libonnxruntime.1.24.4.dylib">https://github.com/b451c/ReaBeat/releases/download/v2.0.3/libonnxruntime-macOS-arm64.dylib</source>
+        <source platform="darwin64" file="reaper_reabeat-x86_64.dylib">https://github.com/b451c/ReaBeat/releases/download/v2.0.3/reaper_reabeat-x86_64.dylib</source>
+        <source platform="darwin64" file="libonnxruntime.1.16.3.dylib">https://github.com/b451c/ReaBeat/releases/download/v2.0.3/libonnxruntime-macOS-x86_64.dylib</source>
+        <source platform="win64" file="reaper_reabeat-x64.dll">https://github.com/b451c/ReaBeat/releases/download/v2.0.3/reaper_reabeat-x64.dll</source>
+        <source platform="win64" file="onnxruntime.dll">https://github.com/b451c/ReaBeat/releases/download/v2.0.3/onnxruntime.dll</source>
+        <source platform="linux64" file="reaper_reabeat-x86_64.so">https://github.com/b451c/ReaBeat/releases/download/v2.0.3/reaper_reabeat-x86_64.so</source>
+        <source platform="linux64" file="libonnxruntime.so.1">https://github.com/b451c/ReaBeat/releases/download/v2.0.3/libonnxruntime.so.1-Linux-x86_64</source>
+        <source platform="linux-aarch64" file="reaper_reabeat-aarch64.so">https://github.com/b451c/ReaBeat/releases/download/v2.0.3/reaper_reabeat-aarch64.so</source>
+        <source platform="linux-aarch64" file="libonnxruntime.so.1">https://github.com/b451c/ReaBeat/releases/download/v2.0.3/libonnxruntime.so.1-Linux-aarch64</source>
       </version>
     </reapack>
   </category>
