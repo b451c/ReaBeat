@@ -28,6 +28,7 @@ DEVELOPMENT_LOG.md
 forum-*.txt
 forum*.txt
 drafts/
+docs/issue-analysis-*.md
 
 # Logs
 *.log
