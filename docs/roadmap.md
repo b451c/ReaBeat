@@ -169,10 +169,6 @@ MainComponent (title menu > UI scale), persisted in ExtState "ReaBeat/uiscale".
   - `ubuntu-22.04` GitHub-hosted runners will be removed at some point - bump to 24.04 when needed (or stay on older for glibc compat)
   - `actions/checkout@v4`, `actions/upload-artifact@v4` use Node 20 which is deprecated June 2026
   - `windows-latest` redirects to `windows-2025-vs2026` by June 15, 2026 - confirm v2026 toolset works
-- **Forum**:
-  - Post v2.0.2 announcement (draft ready in `drafts/forum_post_v2.0.2.txt`)
-  - Email Alex Shturmak (draft ready in `drafts/email_alex_shturmak_v2.0.2.txt`)
-  - Reply per user after v2.0.2 retest reports come in
 - **Sample-perfect alignment for long files** - if streaming OnsetRefinement still can't keep up, alternative: run refinement only within a small window around each model-predicted beat (sparse, O(beats x small window) instead of O(audio_length)).
 
 ---
@@ -187,4 +183,4 @@ Just shipped, not yet confirmed by external users:
 - gkurtenbach retest of Insert Tempo Map preserving other-item markers
 - bobo198504 retest of Detect Beats button (waiting since GitHub Issue #1 reply)
 - Daodan retest of 5 UX points (item drag, suggestion color, N hint, dock activate, download progress)
-- Alex Shturmak retest of long-file detection (waiting since email reply queued in drafts/)
+- Alex retest of long-file detection (fix shipped in v2.0.2)
